@@ -2,6 +2,7 @@ import asyncio
 from dataclasses import dataclass
 from datetime import datetime
 
+from logging_config import get_logger
 from message_source import (
     BookMessage,
     Message,
@@ -10,6 +11,8 @@ from message_source import (
     OrderSummary,
     PriceChangeMessage,
 )
+
+logger = get_logger(__name__)
 
 
 @dataclass
@@ -75,7 +78,7 @@ class StateMachine:
     def receive(self, messages: list[Message | None]) -> None:
         for message in messages:
             if not message:
-                print(f"StateMachine {self._id}: shutdown received")
+                logger.debug(f"StateMachine {self._id}: shutdown received")
                 self._queue.task_done()
                 self.shutdown()
                 continue
@@ -87,7 +90,7 @@ class StateMachine:
                     self._process_price_change(message=message)
 
             # time.sleep(0.005)
-            sum(range(1_000_000))
+            # sum(range(1_000_000))
             # time.sleep(0.025)
             self._queue.task_done()
 
@@ -145,7 +148,7 @@ class StateMachine:
     ) -> None:
         # Validate size is non-negative
         if price_change.size < 0:
-            print(
+            logger.warning(
                 f"Warning: Received negative size {price_change.size} for price {price_change.price}"
             )
             return
@@ -156,7 +159,7 @@ class StateMachine:
         if price_change.size == 0:
             if price_change.price not in price_map:
                 # Price doesn't exist - might indicate missed message or out-of-order processing
-                print(
+                logger.warning(
                     f"Warning: Attempted to remove non-existent price {price_change.price}"
                 )
                 return

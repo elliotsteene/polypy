@@ -1,12 +1,17 @@
 import asyncio
 import multiprocessing as mp
+import queue
 from concurrent.futures import ThreadPoolExecutor
+from functools import partial
 from multiprocessing.connection import Connection
 
 import uvloop
 
+from logging_config import get_logger
 from message_source import Message
 from state_machine import StateMachine
+
+logger = get_logger(__name__)
 
 type WorkerMessage = Message | int | None
 type WorkerMPQueue = mp.Queue[WorkerMessage]
@@ -33,9 +38,8 @@ class Worker:
             try:
                 while not self._shutdown_event.is_set():
                     try:
-                        message: WorkerMessage = await loop.run_in_executor(
-                            pool, self._queue.get
-                        )
+                        getP = partial(self._queue.get, timeout=0.1)
+                        message: WorkerMessage = await loop.run_in_executor(pool, getP)
 
                         if message is None:
                             # Signal all StateMachines to shutdown
@@ -57,20 +61,23 @@ class Worker:
                         state_machine = self._state_machine_mapping[message.worker_id]
                         await state_machine.put_message(message=message)
 
+                    except queue.Empty:
+                        continue
+
                     except AssertionError as e:
-                        print(f"Unexpected message type in worker: {e}")
+                        logger.error(f"Unexpected message type in worker: {e}")
                         raise
                     except Exception as e:
-                        print(f"An error occurred! {e}")
+                        logger.error(f"An error occurred! {e}")
                         raise
             except asyncio.CancelledError:
-                print(
+                logger.warning(
                     f"Async error - worker shutting down, has msgs remaining {not self._queue.empty()}"
                 )
                 raise  # Re-raise to propagate cancellation
 
             finally:
-                print(
+                logger.debug(
                     f"Worker shutting down, has msgs remaining {not self._queue.empty()}"
                 )
 
@@ -84,11 +91,11 @@ class Worker:
 
 
 def start_worker(queue: WorkerMPQueue, pipe: Connection) -> None:
-    print("starting worker!")
+    logger.debug("starting worker!")
     asyncio.set_event_loop_policy(uvloop.EventLoopPolicy())
     worker = Worker(queue=queue)
     asyncio.run(worker._run())
-    print("sending latencies for analysis")
+    logger.debug("sending latencies for analysis")
     latencies: list[float] = []
     for sm in worker._state_machine_mapping.values():
         latencies.extend(sm.message_latencies)

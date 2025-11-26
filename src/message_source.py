@@ -7,6 +7,10 @@ from datetime import datetime
 from enum import StrEnum
 from typing import AsyncGenerator
 
+from logging_config import get_logger
+
+logger = get_logger(__name__)
+
 
 class MessageEvent(StrEnum):
     BOOK = "book"
@@ -80,12 +84,12 @@ class MessageSource:
             wall_clock_end = time.time()  # Add this
             wall_clock_elapsed = wall_clock_end - wall_clock_start  # Add this
 
-            print("Finished message stream")
-            print(f"Generated {messages_generated} messages")
-            print(f"Time spent in loop: {actual_elapsed:.2f}s")
-            print(f"Wall clock time: {wall_clock_elapsed:.2f}s")  # Add this
-            print(f"Expected messages at {rate} msg/s: {duration * rate}")
-            print(
+            logger.info("Finished message stream")
+            logger.info(f"Generated {messages_generated} messages")
+            logger.info(f"Time spent in loop: {actual_elapsed:.2f}s")
+            logger.info(f"Wall clock time: {wall_clock_elapsed:.2f}s")  # Add this
+            logger.info(f"Expected messages at {rate} msg/s: {duration * rate}")
+            logger.info(
                 f"Actual rate: {messages_generated / wall_clock_elapsed:.1f} msg/s"
             )  # Add this
 

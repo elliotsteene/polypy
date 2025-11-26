@@ -1,17 +1,23 @@
 import asyncio
 import multiprocessing as mp
+import os
 from collections import Counter
 from datetime import datetime
 from multiprocessing.connection import Connection
 
 from codetiming import Timer
 
+from logging_config import get_logger
 from message_source import Message
 from worker import WorkerMPQueue, start_worker
 
+logger = get_logger(__name__)
+
+DEFAULT_THRESHOLD = 5
+
 
 class MessageRouter:
-    def __init__(self, max_queue_size=1000, max_sm_threshold: int = 5) -> None:
+    def __init__(self, num_workers: int, max_queue_size=1000) -> None:
         self._queue: asyncio.Queue[Message | None] = asyncio.Queue(max_queue_size)
         self.queue_waittime: list[float] = []
         self._shutdown_event = asyncio.Event()
@@ -19,7 +25,7 @@ class MessageRouter:
         # self._state_machine_mapping: dict[int, StateMachine] = {}
         # self._state_machine_tasks: set[asyncio.Task] = set()
 
-        self._max_sm_threshold = max_sm_threshold
+        self._max_sm_threshold = self._get_max_sm_threshold(num_workers)
         self._process_queue_map: dict[str, WorkerMPQueue] = {}
         self._sm_process_map: dict[int, str] = {}
         self._process_sm_counter: Counter[str] = Counter()
@@ -32,12 +38,18 @@ class MessageRouter:
     # def deinit(self, _: asyncio.Task) -> None:
     #     for task in self._state_machine_tasks:
     #         task.cancel()
+    def _get_max_sm_threshold(self, num_workers: int) -> int:
+        cpus = os.cpu_count()
+        if not cpus:
+            return DEFAULT_THRESHOLD
+        logger.info(f"Available CPU: {cpus}")
+        return max(int(num_workers / cpus), 1)
 
     def shutdown(self):
         self._shutdown_event.set()
 
     async def route_messages(self) -> None:
-        print("Starting to pull messages...")
+        logger.info("Starting to pull messages...")
         try:
             while not self._shutdown_event.is_set():
                 try:
@@ -78,13 +90,13 @@ class MessageRouter:
                     continue
 
         except asyncio.CancelledError:
-            print(
+            logger.warning(
                 f"Async Cancelled - Router cancelled with {self._queue.qsize()} messages remaining"
             )
             raise  # Re-raise to propagate cancellation
 
         finally:
-            print(f"Router shutting down, {self._queue.qsize()} msgs remaining")
+            logger.info(f"Router shutting down, {self._queue.qsize()} msgs remaining")
 
     def put_nowwait_message(self, message: Message | None) -> None:
         self._queue.put_nowait(message)
@@ -101,10 +113,10 @@ class MessageRouter:
             queue = self._process_queue_map[process_name]
 
         except KeyError:
-            print("Worker does not exist in process map!")
+            logger.error("Worker does not exist in process map!")
             raise
         except Exception as e:
-            print(f"An error occurred getting process queue: {e}")
+            logger.error(f"An error occurred getting process queue: {e}")
             raise
 
         return queue
@@ -141,7 +153,7 @@ class MessageRouter:
         self._process_sm_counter[process_name] += 1
 
     def _create_worker_resources(self) -> str:
-        print("creating new process worker")
+        logger.debug("creating new process worker")
         # Create resources
         queue: WorkerMPQueue = mp.Queue()
         rec_conn, send_conn = mp.Pipe(duplex=False)

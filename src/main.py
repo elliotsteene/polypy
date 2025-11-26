@@ -1,14 +1,19 @@
 import asyncio
+import json
 import multiprocessing as mp
 from collections import defaultdict
 from dataclasses import dataclass
-from pprint import PrettyPrinter
 from statistics import quantiles
 
 import uvloop
 
+from logging_config import get_logger, setup_logging
 from message_router import MessageRouter
 from message_source import MessageSource
+
+# Set up logging before anything else
+setup_logging()
+logger = get_logger(__name__)
 
 asyncio.set_event_loop_policy(uvloop.EventLoopPolicy())
 
@@ -23,12 +28,12 @@ class Latency:
 
 
 async def run(rate: int) -> Latency:
-    print(f"Starting run - rate: {rate}")
-    num_workers = 10
+    logger.info(f"Starting run - rate: {rate}")
+    num_workers = 50
     message_source = MessageSource(max_workers=num_workers)
-    message_router = MessageRouter(max_queue_size=10_000)
+    message_router = MessageRouter(num_workers=num_workers, max_queue_size=10_000)
 
-    print("Processing messages...")
+    logger.info("Processing messages...")
     total_yielded_messages = 0
     async with asyncio.TaskGroup() as tg:
         tg.create_task(message_router.route_messages())
@@ -40,14 +45,14 @@ async def run(rate: int) -> Latency:
                 # await asyncio.to_thread(message_router.put_nowwait_message, message)
                 await message_router.put_message(message)
             except asyncio.QueueFull:
-                print("Dropping message")
+                logger.warning("Dropping message")
 
         # Signal shutdown
         await message_router.put_message(None)
 
     # latencies = message_router.aggregate_message_latency()
     latencies = message_router.message_latencies
-    print(f"{len(latencies)} message with latency")
+    logger.info(f"{len(latencies)} message with latency")
     # latencies = [0, 0]
     # Calculate percentiles
     percentiles = quantiles(latencies, n=100)
@@ -65,11 +70,11 @@ async def run(rate: int) -> Latency:
 
 
 async def main():
-    print("Starting message stream")
-    rate = 10
+    logger.info("Starting message stream")
+    rate = 1000
     latencies: dict[int, Latency] = {}
     # for _ in range(1, 6):
-    for _ in range(1):
+    for _ in range(1, 4):
         latency = await run(rate)
 
         latencies[rate] = latency
@@ -82,9 +87,9 @@ async def main():
         results["p90"][rate] = latency.p90
         results["p99"][rate] = latency.p99
 
-    pp = PrettyPrinter()
-
-    pp.pprint(results)
+    # Convert defaultdict to dict for cleaner JSON output
+    results_dict = {k: dict(v) for k, v in results.items()}
+    logger.info(f"Latency results:\n{json.dumps(results_dict, indent=2)}")
 
     # Now process them and measure how long it actually takes
     # print("Processing messages...")
@@ -96,6 +101,7 @@ async def main():
     # print(f"Mean processing: {Timer.timers.mean('processing')}")
     # print(f"Median processing: {Timer.timers.median('processing')}")
     # print(f"Stdev: {Timer.timers.stdev('processing')}")
+    #
     # print(f"Min: {Timer.timers.min('processing')}")
     # print(f"Max: {Timer.timers.max('processing')}")
 
