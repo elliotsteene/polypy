@@ -43,7 +43,9 @@ class MessageRouter:
         if not cpus:
             return DEFAULT_THRESHOLD
         logger.info(f"Available CPU: {cpus}")
-        return max(int(num_workers / cpus), 1)
+        threshold = max(int(num_workers / cpus), 1)
+        logger.info(f"{threshold} per worker process")
+        return threshold
 
     def shutdown(self):
         self._shutdown_event.set()
@@ -143,10 +145,6 @@ class MessageRouter:
     def _register_worker_with_process(self, id: int, process_name: str | None) -> None:
         if not process_name:
             process_name = self._create_worker_resources()
-
-        # Tell worker to create state machine for worker ID
-        queue = self._process_queue_map[process_name]
-        queue.put(id)
 
         # Register resources and increment
         self._sm_process_map[id] = process_name

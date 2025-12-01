@@ -1,6 +1,7 @@
-import asyncio
+from collections import OrderedDict
 from dataclasses import dataclass
 from datetime import datetime
+from typing import TypedDict
 
 from logging_config import get_logger
 from message_source import (
@@ -15,126 +16,95 @@ from message_source import (
 logger = get_logger(__name__)
 
 
-@dataclass
+@dataclass(slots=True)
 class PriceLevel:
     price: float
     size: int
 
 
+class OrderBookState(TypedDict):
+    # Bids (buy orders) - sorted descending (highest price first)
+    bid_map: dict[float, int]
+    bids: list[PriceLevel]
+    # Asks (sell orders) - sorted ascending (lowest price first)
+    ask_map: dict[float, int]
+    asks: list[PriceLevel]
+
+
 class StateMachine:
-    def __init__(self, state_machine_id: int) -> None:
-        self._id = state_machine_id
-        # Bids (buy orders) - sorted descending (highest price first)
-        self._bid_map: dict[float, int] = {}
-        self._bids: list[PriceLevel] = []
-        # Asks (sell orders) - sorted ascending (lowest price first)
-        self._ask_map: dict[float, int] = {}
-        self._asks: list[PriceLevel] = []
-
-        self._queue: asyncio.Queue[Message | None] = asyncio.Queue(10_000)
-        self._shutdown_event = asyncio.Event()
-
+    def __init__(self) -> None:
+        self.active_states = OrderedDict[int, OrderBookState]()
         self.message_latencies: list[float] = []
 
-    async def run(self):
-        while not self._shutdown_event.is_set():
-            # message = await self._queue.get()
-            messages = await self.collect_with_timeout(
-                max_size=100,
-                timeout=0.1,
+    def receive(self, message: Message) -> None:
+        if message.worker_id not in self.active_states:
+            self.active_states[message.worker_id] = OrderBookState(
+                ask_map={},
+                asks=[],
+                bid_map={},
+                bids=[],
             )
-            # await asyncio.to_thread(self.receive, messages)
-            self.receive(messages)
 
-    def shutdown(self):
-        self._shutdown_event.set()
+        order_book_state: OrderBookState = self.active_states[message.worker_id]
 
-    async def collect_with_timeout(
-        self, max_size: int, timeout: float
-    ) -> list[Message | None]:
-        batch = []
-        loop = asyncio.get_event_loop()
-        deadline = loop.time() + timeout
+        match message.event_type:
+            case MessageEvent.BOOK:
+                self._process_book_message(
+                    message=message, orderbook_state=order_book_state
+                )
+            case MessageEvent.PRICE_CHANGE:
+                self._process_price_change(
+                    message=message, orderbook_state=order_book_state
+                )
 
-        while len(batch) < max_size:
-            remaining = deadline - loop.time()
-            if remaining <= 0:
-                break
+        # time.sleep(0.005)
+        # sum(range(1_000_000))
+        # time.sleep(0.025)
+        message_latency: int = (datetime.now() - message.timestamp).total_seconds()
 
-            try:
-                item = await asyncio.wait_for(self._queue.get(), timeout=remaining)
-                batch.append(item)
-            except asyncio.TimeoutError:
-                break
+        self.message_latencies.append(message_latency)
 
-        return batch
-
-    def put_nowwait_message(self, message: Message | None) -> None:
-        self._queue.put_nowait(message)
-
-    async def put_message(self, message: Message | None) -> None:
-        await self._queue.put(message)
-
-    def receive(self, messages: list[Message | None]) -> None:
-        for message in messages:
-            if not message:
-                logger.debug(f"StateMachine {self._id}: shutdown received")
-                self._queue.task_done()
-                self.shutdown()
-                continue
-
-            match message.event_type:
-                case MessageEvent.BOOK:
-                    self._process_book_message(message=message)
-                case MessageEvent.PRICE_CHANGE:
-                    self._process_price_change(message=message)
-
-            # time.sleep(0.005)
-            # sum(range(1_000_000))
-            # time.sleep(0.025)
-            self._queue.task_done()
-
-            message_latency: int = (datetime.now() - message.timestamp).total_seconds()
-
-            self.message_latencies.append(message_latency)
-
-    def _process_book_message(self, message: Message) -> None:
+    def _process_book_message(
+        self, message: Message, orderbook_state: OrderBookState
+    ) -> None:
         assert isinstance(message, BookMessage)
         # print(f"Worker {self._id}: Processing book message")
 
         for buy in message.buys:
             self._insert_price_level(
-                price_levels=self._bids,
-                price_map=self._bid_map,
+                price_levels=orderbook_state["bids"],
+                price_map=orderbook_state["bid_map"],
                 order=buy,
                 descending=True,
             )
 
         for sell in message.sells:
             self._insert_price_level(
-                price_levels=self._asks,
-                price_map=self._ask_map,
+                price_levels=orderbook_state["asks"],
+                price_map=orderbook_state["ask_map"],
                 order=sell,
                 descending=False,
             )
 
-    def _process_price_change(self, message: Message) -> None:
+    def _process_price_change(
+        self, message: Message, orderbook_state: OrderBookState
+    ) -> None:
         assert isinstance(message, PriceChangeMessage)
         # print(f"Worker {self._id}: Processing price change message")
 
         match message.side:
             case OrderSide.BUY:
                 self._update_orderbook(
-                    price_levels=self._bids,
-                    price_map=self._bid_map,
+                    price_levels=orderbook_state["bids"],
+                    price_map=orderbook_state["bid_map"],
                     price_change=message,
                     descending=True,
                 )
 
             case OrderSide.SELL:
                 self._update_orderbook(
-                    price_levels=self._asks,
-                    price_map=self._ask_map,
+                    price_levels=orderbook_state["asks"],
+                    price_map=orderbook_state["ask_map"],
                     price_change=message,
                     descending=False,
                 )

@@ -29,7 +29,7 @@ class Latency:
 
 async def run(rate: int) -> Latency:
     logger.info(f"Starting run - rate: {rate}")
-    num_workers = 50
+    num_workers = 5000
     message_source = MessageSource(max_workers=num_workers)
     message_router = MessageRouter(num_workers=num_workers, max_queue_size=10_000)
 
