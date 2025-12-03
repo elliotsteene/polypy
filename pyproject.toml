@@ -3,14 +3,29 @@ name = "polypy"
 version = "0.1.0"
 description = "Add your description here"
 readme = "README.md"
-requires-python = ">=3.12"
+requires-python = ">=3.14"
 dependencies = [
     "codetiming>=1.4.0",
+    "msgspec>=0.20.0",
+    "pydantic-settings>=2.12.0",
+    "sortedcontainers>=2.4.0",
+    "structlog>=25.5.0",
     "uvloop>=0.22.1",
+    "websockets>=15.0.1",
 ]
 
 [dependency-groups]
 dev = [
     "pyrefly>=0.42.3",
+    "pytest-asyncio>=1.3.0",
+    "rich>=14.2.0",
     "ruff>=0.14.6",
 ]
+
+[build-system]
+requires = ["uv_build>=0.9.14,<0.10.0"]
+build-backend = "uv_build"
+
+[tool.uv.build-backend]
+module-name = "src"
+module-root = ""
