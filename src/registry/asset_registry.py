@@ -117,7 +117,7 @@ class AssetRegistry:
 
                 # Update entry
                 entry.status = AssetStatus.SUBSCRIBED
-                entry.condition_id = connection_id
+                entry.connection_id = connection_id
                 entry.subscribed_at = now
 
                 # Update connection index

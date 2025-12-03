@@ -104,13 +104,13 @@ class OrderbookState:
     @property
     def best_bid(self) -> int | None:
         if not self._cache_valid:
-            self._recompute_cache
+            self._recompute_cache()
         return self._cached_best_bid
 
     @property
     def best_ask(self) -> int | None:
         if not self._cache_valid:
-            self._recompute_cache
+            self._recompute_cache()
         return self._cached_best_ask
 
     @property
