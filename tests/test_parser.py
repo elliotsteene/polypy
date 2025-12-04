@@ -1,7 +1,7 @@
 import pytest
 
-from src.parser import MessageParser
-from src.protocol import (
+from src.messages.parser import MessageParser
+from src.messages.protocol import (
     BookSnapshot,
     EventType,
     LastTradePrice,
@@ -28,21 +28,21 @@ from src.protocol import (
                         bids=(
                             PriceLevel(
                                 price=480,
-                                size=30,
+                                size=3000,
                             ),
                             PriceLevel(
                                 price=490,
-                                size=20,
+                                size=2000,
                             ),
                         ),
                         asks=(
                             PriceLevel(
                                 price=520,
-                                size=25,
+                                size=2500,
                             ),
                             PriceLevel(
                                 price=530,
-                                size=60,
+                                size=6000,
                             ),
                         ),
                     ),
@@ -60,7 +60,7 @@ from src.protocol import (
                     price_change=PriceChange(
                         asset_id="71321045679252212594626385532706912750332728571942532289631379312455583992563",
                         price=500,
-                        size=200,
+                        size=20000,
                         side=Side.BUY,
                         hash="56621a121a47ed9333273e21c83b660cff37ae50",
                         best_bid=500,
@@ -75,7 +75,7 @@ from src.protocol import (
                     price_change=PriceChange(
                         asset_id="52114319501245915516055106046884209969926127482827954674443846427813813222426",
                         price=500,
-                        size=200,
+                        size=20000,
                         side=Side.SELL,
                         hash="1895759e4df7a796bf4f1c5a5950b748306923e2",
                         best_bid=0,
@@ -94,7 +94,7 @@ from src.protocol import (
                     raw_timestamp=1750428146322,
                     last_trade=LastTradePrice(
                         price=456,
-                        size=219,
+                        size=21921,
                         side=Side.BUY,
                     ),
                 )

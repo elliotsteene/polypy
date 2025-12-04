@@ -155,7 +155,7 @@ class LastTradePrice(msgspec.Struct, frozen=True):
     ) -> LastTradePrice:
         return cls(
             price=scale_price(price),
-            size=int(float(size)),
+            size=scale_size(size),
             side=SIDE_MAP[side],
         )
 
