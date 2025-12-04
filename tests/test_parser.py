@@ -112,3 +112,63 @@ def test_parse_messages(bytes: bytes, expected: list[ParsedMessage]) -> None:
     # Assert
     for i, message in enumerate(parsed_messages):
         assert message == expected[i]
+
+
+class TestParserEdgeCases:
+    """Test parser behavior with malformed or edge case inputs."""
+
+    def test_parse_empty_bids_asks(self) -> None:
+        # Arrange
+        parser = MessageParser()
+        data = b'{"event_type":"book","asset_id":"123","market":"0xabc","bids":[],"asks":[],"timestamp":"1000","hash":"0x0"}'
+
+        # Act
+        messages = list(parser.parse_messages(data))
+
+        # Assert
+        assert len(messages) == 1
+        assert messages[0].book is not None
+        assert len(messages[0].book.bids) == 0
+        assert len(messages[0].book.asks) == 0
+
+    def test_parse_multiple_price_changes_empty(self) -> None:
+        # Arrange
+        parser = MessageParser()
+        data = b'{"event_type":"price_change","market":"0xabc","price_changes":[],"timestamp":"1000"}'
+
+        # Act
+        messages = list(parser.parse_messages(data))
+
+        # Assert
+        assert len(messages) == 0
+
+    def test_parse_unknown_event_type(self) -> None:
+        # Arrange
+        parser = MessageParser()
+        data = b'{"event_type":"unknown_type","market":"0xabc","timestamp":"1000"}'
+
+        # Act & Assert
+        from src.exceptions import UnknownMessageType
+
+        with pytest.raises(UnknownMessageType):
+            list(parser.parse_messages(data))
+
+    def test_parse_missing_market(self) -> None:
+        # Arrange
+        parser = MessageParser()
+        data = b'{"event_type":"book","asset_id":"123","timestamp":"1000"}'
+
+        # Act & Assert
+        from src.exceptions import UnknownMarket
+
+        with pytest.raises(UnknownMarket):
+            list(parser.parse_messages(data))
+
+    def test_parse_malformed_json(self) -> None:
+        # Arrange
+        parser = MessageParser()
+        data = b'{"event_type":"book","invalid json'
+
+        # Act & Assert
+        with pytest.raises(Exception):
+            list(parser.parse_messages(data))
