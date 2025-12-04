@@ -1,6 +1,5 @@
 """Tests for connection statistics and WebSocket handling."""
 
-import time
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest

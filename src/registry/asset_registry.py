@@ -50,6 +50,60 @@ class AssetRegistry:
     def get_by_connection(self, connection_id: str) -> FrozenSet[str]:
         return frozenset(self._by_connection.get(connection_id, set()))
 
+    def get_active_by_connection(self, connection_id: str) -> FrozenSet[str]:
+        """Get only active (SUBSCRIBED) assets for a connection, excluding expired."""
+        asset_ids = self._by_connection.get(connection_id, set())
+        active = {
+            asset_id
+            for asset_id in asset_ids
+            if (entry := self._assets.get(asset_id))
+            and entry.status == AssetStatus.SUBSCRIBED
+        }
+        return frozenset(active)
+
+    def get_pending_count(self) -> int:
+        """Get count of assets awaiting subscription."""
+        return len(self._pending_queue)
+
+    def connection_stats(self, connection_id: str) -> dict[str, int | float]:
+        """
+        Get statistics for a connection.
+
+        Returns dict with:
+            - total: total assets assigned to connection
+            - subscribed: count of SUBSCRIBED assets
+            - expired: count of EXPIRED assets
+            - pollution_ratio: expired / total (0.0 if total == 0)
+        """
+        asset_ids = self._by_connection.get(connection_id, set())
+        total = len(asset_ids)
+
+        if total == 0:
+            return {
+                "total": 0,
+                "subscribed": 0,
+                "expired": 0,
+                "pollution_ratio": 0.0,
+            }
+
+        subscribed = 0
+        expired = 0
+
+        for asset_id in asset_ids:
+            entry = self._assets.get(asset_id)
+            if entry:
+                if entry.status == AssetStatus.SUBSCRIBED:
+                    subscribed += 1
+                elif entry.status == AssetStatus.EXPIRED:
+                    expired += 1
+
+        return {
+            "total": total,
+            "subscribed": subscribed,
+            "expired": expired,
+            "pollution_ratio": expired / total if total > 0 else 0.0,
+        }
+
     # ---------------------------
     # Mutation operations (require lock)
     # --------------------------
