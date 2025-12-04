@@ -14,6 +14,9 @@ check:
 test:
     @ uv run pytest
 
+test-cov:
+    @ uv run pytest --cov=src --cov-report=term-missing --cov-fail-under=90
+
 check-test:
     @ just check
     @ just test
