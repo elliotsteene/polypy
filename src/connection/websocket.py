@@ -91,6 +91,11 @@ class WebsocketConnection:
 
         return True
 
+    def mark_draining(self) -> None:
+        """Mark connection as draining (preparing for recycling)."""
+        if self._status == ConnectionStatus.CONNECTED:
+            self._status = ConnectionStatus.DRAINING
+
     async def start(self) -> None:
         """Start connection and message processing"""
         if self._status not in (ConnectionStatus.DISCONNECTED, ConnectionStatus.CLOSED):

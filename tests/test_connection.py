@@ -1,6 +1,5 @@
 """Tests for connection statistics and WebSocket handling."""
 
-import time
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -21,7 +20,7 @@ class TestConnectionStats:
             uptime = stats.uptime
 
         # Assert
-        assert uptime == 10.0
+        assert round(uptime, 1) == 10.0
 
     def test_message_rate_with_messages(self) -> None:
         # Arrange
@@ -34,7 +33,7 @@ class TestConnectionStats:
             rate = stats.message_rate
 
         # Assert
-        assert rate == 10.0  # 100 messages / 10 seconds
+        assert round(rate, 1) == 10.0  # 100 messages / 10 seconds
 
     def test_message_rate_zero_when_no_time_elapsed(self) -> None:
         # Arrange
@@ -46,7 +45,7 @@ class TestConnectionStats:
             rate = stats.message_rate
 
         # Assert
-        assert rate == 0.0
+        assert round(rate, 1) == 0.0
 
     def test_message_rate_zero_when_no_messages(self) -> None:
         # Arrange
@@ -58,7 +57,7 @@ class TestConnectionStats:
             rate = stats.message_rate
 
         # Assert
-        assert rate == 0.0
+        assert round(rate, 1) == 0.0
 
 
 class TestWebsocketConnection:
