@@ -270,3 +270,88 @@ class TestRoutingLoop:
 
         # We should have sent one sentinel per worker
         assert sentinel_count == 2
+
+
+class TestRouterEdgeCases:
+    """Test edge cases and error handling."""
+
+    @pytest.mark.asyncio
+    async def test_start_when_already_running(self):
+        """Test starting router when already running."""
+        router = _create_test_router(num_workers=2)
+        await router.start()
+
+        # Try to start again
+        await router.start()  # Should log warning and return
+
+        await router.stop()
+
+    @pytest.mark.asyncio
+    async def test_stop_when_not_running(self):
+        """Test stopping router when not running."""
+        router = _create_test_router(num_workers=2)
+
+        # Stop without starting - should return early
+        await router.stop()
+
+        # Router should still be in not-running state
+        assert not router._running
+
+    @pytest.mark.asyncio
+    async def test_queue_full_during_shutdown(self):
+        """Test handling Full exception when sending shutdown sentinels."""
+        from queue import Full
+        from unittest.mock import Mock
+
+        router = _create_test_router(num_workers=2)
+        await router.start()
+
+        # Mock worker queues to raise Full on put_nowait
+        for queue in router._worker_queues:
+            queue.put_nowait = Mock(side_effect=Full())
+
+        # Stop should handle the Full exception gracefully
+        await router.stop()
+
+    @pytest.mark.asyncio
+    async def test_worker_queue_full_message_dropped(self):
+        """Test messages dropped when worker queue is full."""
+        # Create router with small worker queues
+        small_queues = [MPQueue(maxsize=1) for _ in range(2)]
+        router = MessageRouter(num_workers=2, worker_queues=small_queues)
+        await router.start()
+
+        # Send many messages to fill up queues
+        for i in range(20):
+            message = _make_price_change_message(f"asset-{i}")
+            await router.route_message("conn-1", message)
+
+        # Give routing loop time to try processing
+        await asyncio.sleep(0.2)
+
+        await router.stop()
+
+        # Some messages should have been dropped due to full queues
+        assert router.stats.messages_dropped > 0
+        assert router.stats.queue_full_events > 0
+
+    @pytest.mark.asyncio
+    async def test_batch_timeout_behavior(self):
+        """Test that batching respects timeout even if batch not full."""
+        from src.router import BATCH_TIMEOUT
+
+        router = _create_test_router(num_workers=2)
+        await router.start()
+
+        # Send just one message (won't fill batch)
+        message = _make_price_change_message("asset-1")
+        await router.route_message("conn-1", message)
+
+        # Wait longer than batch timeout
+        await asyncio.sleep(BATCH_TIMEOUT + 0.05)
+
+        await router.stop()
+
+        # Message should have been routed despite incomplete batch
+        assert router.stats.messages_routed == 1
+        assert router.stats.batches_sent >= 1
