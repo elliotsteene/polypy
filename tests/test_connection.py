@@ -157,10 +157,15 @@ class TestWebsocketConnection:
             on_message=mock_callback,
         )
         conn._status = ConnectionStatus.CONNECTED
-        conn._stats.last_message_ts = time.monotonic()
 
-        # Act
-        healthy = conn.is_healthy
+        # Set recent message time and mock current time to be the same
+        # This ensures the silence is 0 seconds (deterministic)
+        base_time = 1000.0
+        conn._stats.last_message_ts = base_time
+
+        # Act - mock time.monotonic to return same time (0 seconds silence)
+        with patch("time.monotonic", return_value=base_time):
+            healthy = conn.is_healthy
 
         # Assert
         assert healthy is True
@@ -179,10 +184,15 @@ class TestWebsocketConnection:
             on_message=mock_callback,
         )
         conn._status = ConnectionStatus.CONNECTED
-        conn._stats.last_message_ts = time.monotonic() - 61.0  # 61 seconds ago
 
-        # Act
-        healthy = conn.is_healthy
+        # Set last message to 61 seconds ago, then mock current time
+        # This ensures the silence calculation is deterministic
+        base_time = 1000.0
+        conn._stats.last_message_ts = base_time - 61.0  # 61 seconds ago
+
+        # Act - mock time.monotonic to return a fixed "current" time
+        with patch("time.monotonic", return_value=base_time):
+            healthy = conn.is_healthy
 
         # Assert
         assert healthy is False
