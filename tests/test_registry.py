@@ -211,3 +211,55 @@ class TestAssetRegistry:
         assert registry.get("123") is None
         assert "123" not in registry.get_by_condition("condition_1")
         assert "123" not in registry.get_by_connection("conn_1")
+
+    async def test_get_expiring_before_returns_correct_assets(
+        self, registry: AssetRegistry
+    ) -> None:
+        # Arrange
+        import time
+
+        now = int(time.time() * 1000)
+        await registry.add_asset("exp_soon", "cond_1", now + 1000)  # Expires in 1s
+        await registry.add_asset("exp_later", "cond_2", now + 60000)  # Expires in 60s
+        await registry.add_asset("no_exp", "cond_3", 0)  # No expiration
+
+        # Act
+        expiring = registry.get_expiring_before(now + 30000)  # Within 30s
+
+        # Assert
+        assert "exp_soon" in expiring
+        assert "exp_later" not in expiring
+        assert "no_exp" not in expiring
+
+    async def test_get_expiring_before_empty_when_none_expiring(
+        self, registry: AssetRegistry
+    ) -> None:
+        # Arrange
+        import time
+
+        now = int(time.time() * 1000)
+        await registry.add_asset("exp_later", "cond_1", now + 60000)
+
+        # Act
+        expiring = registry.get_expiring_before(now)
+
+        # Assert
+        assert len(expiring) == 0
+
+    async def test_get_by_status_returns_correct_assets(
+        self, registry: AssetRegistry
+    ) -> None:
+        # Arrange
+        await registry.add_asset("asset_1", "cond_1")
+        await registry.add_asset("asset_2", "cond_1")
+        await registry.mark_subscribed(["asset_1"], "conn_1")
+
+        # Act
+        pending = registry.get_by_status(AssetStatus.PENDING)
+        subscribed = registry.get_by_status(AssetStatus.SUBSCRIBED)
+
+        # Assert
+        assert "asset_2" in pending
+        assert "asset_1" not in pending
+        assert "asset_1" in subscribed
+        assert "asset_2" not in subscribed

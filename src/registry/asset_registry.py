@@ -65,6 +65,24 @@ class AssetRegistry:
         """Get count of assets awaiting subscription."""
         return len(self._pending_queue)
 
+    def get_expiring_before(self, timestamp: int) -> list[str]:
+        """
+        Get all asset_ids with expiration_ts before the given timestamp.
+
+        Uses SortedDict.irange() for efficient range query.
+        Returns list of asset_ids sorted by expiration time (earliest first).
+        """
+        result: list[str] = []
+        for exp_ts in self._by_expiration.irange(
+            maximum=timestamp, inclusive=(True, False)
+        ):
+            result.extend(self._by_expiration[exp_ts])
+        return result
+
+    def get_by_status(self, status: AssetStatus) -> FrozenSet[str]:
+        """Get all asset_ids with the given status."""
+        return frozenset(self._by_status.get(status, set()))
+
     def connection_stats(self, connection_id: str) -> dict[str, int | float]:
         """
         Get statistics for a connection.
@@ -141,7 +159,8 @@ class AssetRegistry:
 
             if expiration_ts > 0:
                 if expiration_ts not in self._by_expiration:
-                    self._by_expiration[expiration_ts].add(asset_id)
+                    self._by_expiration[expiration_ts] = set()
+                self._by_expiration[expiration_ts].add(asset_id)
 
             self._pending_queue.append(asset_id)
 
