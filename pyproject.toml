@@ -17,6 +17,7 @@ dependencies = [
 [dependency-groups]
 dev = [
     "pyrefly>=0.42.3",
+    "pytest>=9.0.1",
     "pytest-asyncio>=1.3.0",
     "rich>=14.2.0",
     "ruff>=0.14.6",
@@ -29,3 +30,11 @@ build-backend = "uv_build"
 [tool.uv.build-backend]
 module-name = "src"
 module-root = ""
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = "test_*.py"
+python_classes = "Test*"
+python_functions = "test_*"
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
