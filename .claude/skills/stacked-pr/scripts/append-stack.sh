@@ -51,6 +51,10 @@ echo "Committing changes..."
 git add --all -- ':!thoughts'
 git commit -m "$COMMIT_MSG"
 
+# Push branch to remote
+echo "Pushing branch to remote..."
+git push -u origin "$FULL_BRANCH_NAME"
+
 # Create PR with base as previous phase
 echo "Creating pull request..."
 gh pr create \
