@@ -188,11 +188,11 @@ class AssetRegistry:
 
             for asset_id in asset_ids:
                 entry = self._assets.get(asset_id)
-                if entry is None or entry.condition_id != old_connection_id:
+                if entry is None or entry.connection_id != old_connection_id:
                     continue
 
                 # Update connectionn index
-                self._by_condition[old_connection_id].discard(asset_id)
+                self._by_connection[old_connection_id].discard(asset_id)
                 self._by_connection[new_connection_id].add(asset_id)
 
                 # Update entry
