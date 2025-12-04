@@ -2,16 +2,24 @@
 
 import asyncio
 import time
+from multiprocessing import Queue as MPQueue
 
 import pytest
 
 from src.messages.protocol import EventType, ParsedMessage, PriceChange, Side
 from src.router import (
     ASYNC_QUEUE_SIZE,
+    WORKER_QUEUE_SIZE,
     MessageRouter,
     RouterStats,
     _hash_to_worker,
 )
+
+
+def _create_test_router(num_workers: int) -> MessageRouter:
+    """Helper to create MessageRouter with test queues."""
+    queues = [MPQueue(maxsize=WORKER_QUEUE_SIZE) for _ in range(num_workers)]
+    return MessageRouter(num_workers=num_workers, worker_queues=queues)
 
 
 class TestRouterStats:
@@ -67,24 +75,31 @@ class TestMessageRouterInit:
     """Tests for MessageRouter initialization."""
 
     def test_init_creates_queues(self):
-        router = MessageRouter(num_workers=4)
+        router = _create_test_router(num_workers=4)
         assert len(router.get_worker_queues()) == 4
         assert router.num_workers == 4
 
     def test_init_zero_workers_raises(self):
+        queues = []
         with pytest.raises(ValueError):
-            MessageRouter(num_workers=0)
+            MessageRouter(num_workers=0, worker_queues=queues)
 
     def test_init_negative_workers_raises(self):
+        queues = []
         with pytest.raises(ValueError):
-            MessageRouter(num_workers=-1)
+            MessageRouter(num_workers=-1, worker_queues=queues)
+
+    def test_init_mismatched_queues_raises(self):
+        queues = [MPQueue(), MPQueue()]
+        with pytest.raises(ValueError):
+            MessageRouter(num_workers=3, worker_queues=queues)
 
     def test_stats_initial(self):
-        router = MessageRouter(num_workers=2)
+        router = _create_test_router(num_workers=2)
         assert router.stats.messages_routed == 0
 
     def test_queue_depths_initial(self):
-        router = MessageRouter(num_workers=2)
+        router = _create_test_router(num_workers=2)
         depths = router.get_queue_depths()
         assert depths["async_queue"] == 0
         # Note: worker queue depths may be -1 on macOS (qsize not implemented)
@@ -96,7 +111,7 @@ class TestWorkerAssignment:
     """Tests for asset-to-worker assignment."""
 
     def test_get_worker_for_asset_cached(self):
-        router = MessageRouter(num_workers=4)
+        router = _create_test_router(num_workers=4)
         asset_id = "test-asset"
 
         worker1 = router.get_worker_for_asset(asset_id)
@@ -130,7 +145,7 @@ class TestRouteMessage:
 
     @pytest.mark.asyncio
     async def test_route_message_success(self):
-        router = MessageRouter(num_workers=2)
+        router = _create_test_router(num_workers=2)
         message = _make_price_change_message("asset-1")
 
         result = await router.route_message("conn-1", message)
@@ -144,7 +159,7 @@ class TestRouteMessage:
     async def test_route_message_backpressure(self):
         """Test that messages are dropped when queue is full."""
         # Create router with tiny queue for testing
-        router = MessageRouter(num_workers=1)
+        router = _create_test_router(num_workers=1)
         # Fill the async queue
         for i in range(ASYNC_QUEUE_SIZE):
             message = _make_price_change_message(f"asset-{i}")
@@ -163,7 +178,7 @@ class TestRoutingLoop:
 
     @pytest.mark.asyncio
     async def test_start_stop(self):
-        router = MessageRouter(num_workers=2)
+        router = _create_test_router(num_workers=2)
         await router.start()
         assert router._running is True
         assert router._routing_task is not None
@@ -173,7 +188,7 @@ class TestRoutingLoop:
 
     @pytest.mark.asyncio
     async def test_messages_routed_to_workers(self):
-        router = MessageRouter(num_workers=2)
+        router = _create_test_router(num_workers=2)
         await router.start()
 
         # Send messages
@@ -193,7 +208,7 @@ class TestRoutingLoop:
     @pytest.mark.asyncio
     async def test_consistent_routing(self):
         """Same asset always goes to same worker."""
-        router = MessageRouter(num_workers=4)
+        router = _create_test_router(num_workers=4)
         await router.start()
 
         asset_id = "test-asset"
@@ -226,7 +241,7 @@ class TestRoutingLoop:
 
     @pytest.mark.asyncio
     async def test_stop_sends_sentinels(self):
-        router = MessageRouter(num_workers=2)
+        router = _create_test_router(num_workers=2)
         await router.start()
 
         # Send a few messages first

@@ -96,28 +96,40 @@ class MessageRouter:
         "_asset_worker_cache",
     )
 
-    def __init__(self, num_workers: int) -> None:
+    def __init__(
+        self,
+        num_workers: int,
+        worker_queues: list[WorkerQueue],
+    ) -> None:
         """
         Initialize router.
 
         Args:
             num_workers: Number of worker processes to route to
+            worker_queues: Pre-created queues from WorkerManager.
+                          Must have exactly one queue per worker.
+
+        Raises:
+            ValueError: If num_workers < 1 or queue count doesn't match num_workers
         """
         if num_workers < 1:
             raise ValueError("num_workers must be at least 1")
 
+        if len(worker_queues) != num_workers:
+            raise ValueError(
+                f"worker_queues length ({len(worker_queues)}) must match "
+                f"num_workers ({num_workers})"
+            )
+
         self._num_workers = num_workers
-        self._worker_queues: list[WorkerQueue] = [
-            MPQueue(maxsize=WORKER_QUEUE_SIZE) for _ in range(num_workers)
-        ]
+        self._worker_queues = worker_queues
+
         self._async_queue: asyncio.Queue[tuple[str, ParsedMessage, float]] = (
             asyncio.Queue(maxsize=ASYNC_QUEUE_SIZE)
         )
         self._routing_task: asyncio.Task[None] | None = None
         self._running = False
         self._stats = RouterStats()
-
-        # Cache asset_id -> worker_index mapping
         self._asset_worker_cache: dict[str, int] = {}
 
     @property
