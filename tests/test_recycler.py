@@ -595,3 +595,71 @@ class TestLifecycle:
 
         # Should have recovered and continued
         assert call_count >= 2
+
+
+class TestManualOperations:
+    """Test manual intervention and visibility."""
+
+    @pytest.mark.asyncio
+    async def test_force_recycle_success(self, recycler, mock_registry, mock_pool):
+        """force_recycle successfully triggers recycling."""
+        connection_id = "conn-1"
+        active_assets = ["asset-1"]
+
+        mock_registry.get_active_by_connection.return_value = frozenset(active_assets)
+        mock_pool.force_subscribe.return_value = "conn-new"
+        mock_pool.get_connection_stats.return_value = [
+            {
+                "connection_id": "conn-new",
+                "is_healthy": True,
+            }
+        ]
+        mock_registry.reassign_connection.return_value = 1
+
+        result = await recycler.force_recycle(connection_id)
+
+        assert result is True
+        assert recycler.stats.recycles_completed == 1
+
+    @pytest.mark.asyncio
+    async def test_force_recycle_already_recycling(self, recycler):
+        """force_recycle raises ValueError if already recycling."""
+        connection_id = "conn-1"
+        recycler._active_recycles.add(connection_id)
+
+        with pytest.raises(ValueError, match="already being recycled"):
+            await recycler.force_recycle(connection_id)
+
+    @pytest.mark.asyncio
+    async def test_force_recycle_failure(self, recycler, mock_registry, mock_pool):
+        """force_recycle returns False on failure."""
+        connection_id = "conn-1"
+
+        mock_registry.get_active_by_connection.return_value = frozenset(["asset-1"])
+        mock_pool.force_subscribe.side_effect = Exception("Failed")
+
+        result = await recycler.force_recycle(connection_id)
+
+        assert result is False
+        assert recycler.stats.recycles_failed == 1
+
+    @pytest.mark.asyncio
+    async def test_get_active_recycles(self, recycler):
+        """get_active_recycles returns copy of active set."""
+        recycler._active_recycles.add("conn-1")
+        recycler._active_recycles.add("conn-2")
+
+        active = recycler.get_active_recycles()
+
+        assert active == {"conn-1", "conn-2"}
+
+        # Should be a copy, not the original
+        active.add("conn-3")
+        assert "conn-3" not in recycler._active_recycles
+
+    def test_stats_property(self, recycler):
+        """stats property returns stats object."""
+        stats = recycler.stats
+
+        assert stats is recycler._stats
+        assert isinstance(stats, RecycleStats)

@@ -383,3 +383,32 @@ class ConnectionRecycler:
                 break
             except Exception as e:
                 logger.error(f"Monitor loop error: {e}", exc_info=True)
+
+    async def force_recycle(self, connection_id: str) -> bool:
+        """
+        Manually trigger recycling for a specific connection.
+
+        Bypasses trigger checks - used for manual intervention.
+
+        Args:
+            connection_id: ID of connection to recycle
+
+        Returns:
+            True if successful, False otherwise
+
+        Raises:
+            ValueError: If connection_id is already being recycled
+        """
+        if connection_id in self._active_recycles:
+            raise ValueError(f"Connection {connection_id} is already being recycled")
+
+        logger.info(f"Manual recycle triggered for {connection_id}")
+
+        result = await self._recycle_connection(connection_id)
+
+        if result:
+            logger.info(f"Manual recycle of {connection_id} completed successfully")
+        else:
+            logger.error(f"Manual recycle of {connection_id} failed")
+
+        return result
