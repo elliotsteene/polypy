@@ -1,6 +1,7 @@
 """Connection recycler for zero-downtime connection migration."""
 
 import asyncio
+import time
 from dataclasses import dataclass
 
 import structlog
@@ -153,4 +154,145 @@ class ConnectionRecycler:
 
             if should_recycle:
                 logger.info(f"Recycling trigger detected for {connection_id}: {reason}")
-                # TODO: Spawn recycling task (implemented in Phase 3)
+                asyncio.create_task(
+                    self._recycle_connection(connection_id),
+                    name=f"recycle-{connection_id}",
+                )
+
+    async def _recycle_connection(self, connection_id: str) -> bool:
+        """
+        Perform connection recycling with zero-downtime migration.
+
+        Workflow:
+        1. Acquire semaphore for concurrency control
+        2. Get active markets from old connection
+        3. Create new connection with those markets
+        4. Wait STABILIZATION_DELAY for new connection
+        5. Verify new connection is healthy
+        6. Atomically update registry (reassign markets)
+        7. Close old connection
+        8. Update stats
+
+        Args:
+            connection_id: ID of connection to recycle
+
+        Returns:
+            True if successful, False otherwise
+        """
+        start_time = time.monotonic()
+
+        try:
+            async with self._recycle_semaphore:
+                self._active_recycles.add(connection_id)
+                self._stats.recycles_initiated += 1
+
+                logger.info(f"Starting recycle for {connection_id}")
+
+                # Step 1: Get active markets from old connection
+                active_assets = list(
+                    self._registry.get_active_by_connection(connection_id)
+                )
+
+                # Step 2: Handle empty connection
+                if not active_assets:
+                    logger.info(
+                        f"Connection {connection_id} has no active markets, "
+                        "removing without replacement"
+                    )
+                    await self._pool._remove_connection(connection_id)
+                    self._stats.recycles_completed += 1
+                    return True
+
+                logger.info(
+                    f"Recycling {connection_id} with {len(active_assets)} active markets"
+                )
+
+                # Step 3: Create new connection
+                try:
+                    new_connection_id = await self._pool.force_subscribe(active_assets)
+                except Exception as e:
+                    logger.error(
+                        f"Failed to create replacement connection for {connection_id}: {e}",
+                        exc_info=True,
+                    )
+                    self._stats.recycles_failed += 1
+                    return False
+
+                logger.info(
+                    f"Created replacement connection {new_connection_id}, "
+                    f"waiting {STABILIZATION_DELAY}s for stabilization"
+                )
+
+                # Step 4: Stabilization delay (both connections receiving messages)
+                await asyncio.sleep(STABILIZATION_DELAY)
+
+                # Step 5: Verify new connection health
+                new_stats = None
+                for stats in self._pool.get_connection_stats():
+                    if stats["connection_id"] == new_connection_id:
+                        new_stats = stats
+                        break
+
+                if not new_stats or not new_stats.get("is_healthy", False):
+                    logger.error(
+                        f"New connection {new_connection_id} is not healthy, "
+                        f"aborting recycle of {connection_id}"
+                    )
+                    self._stats.recycles_failed += 1
+                    return False
+
+                logger.info(f"New connection {new_connection_id} is healthy")
+
+                # Step 6: Atomic registry update
+                try:
+                    migrated_count = await self._registry.reassign_connection(
+                        active_assets,
+                        connection_id,
+                        new_connection_id,
+                    )
+                except Exception as e:
+                    logger.error(
+                        f"Failed to reassign markets from {connection_id} "
+                        f"to {new_connection_id}: {e}",
+                        exc_info=True,
+                    )
+                    self._stats.recycles_failed += 1
+                    return False
+
+                logger.info(
+                    f"Reassigned {migrated_count} markets from {connection_id} "
+                    f"to {new_connection_id}"
+                )
+
+                # Step 7: Remove old connection
+                try:
+                    await self._pool._remove_connection(connection_id)
+                except Exception as e:
+                    logger.warning(
+                        f"Error removing old connection {connection_id}: {e}",
+                        exc_info=True,
+                    )
+                    # Continue - still count as success since markets are migrated
+
+                # Step 8: Update stats
+                duration_ms = (time.monotonic() - start_time) * 1000
+                self._stats.recycles_completed += 1
+                self._stats.markets_migrated += migrated_count
+                self._stats.total_downtime_ms += duration_ms
+
+                logger.info(
+                    f"Successfully recycled {connection_id} -> {new_connection_id} "
+                    f"in {duration_ms:.1f}ms with {migrated_count} markets"
+                )
+
+                return True
+
+        except Exception as e:
+            logger.error(
+                f"Unexpected error recycling {connection_id}: {e}",
+                exc_info=True,
+            )
+            self._stats.recycles_failed += 1
+            return False
+        finally:
+            self._active_recycles.discard(connection_id)

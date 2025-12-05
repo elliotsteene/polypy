@@ -1,5 +1,7 @@
 """Unit tests for ConnectionRecycler."""
 
+import asyncio
+
 import pytest
 
 from src.lifecycle.recycler import RecycleStats
@@ -99,17 +101,24 @@ class TestConnectionRecyclerInit:
 @pytest.fixture
 def mock_registry():
     """Mock AssetRegistry."""
-    from unittest.mock import Mock
+    from unittest.mock import AsyncMock, Mock
 
-    return Mock()
+    registry = Mock()
+    # Make async methods return AsyncMock
+    registry.reassign_connection = AsyncMock()
+    return registry
 
 
 @pytest.fixture
 def mock_pool():
     """Mock ConnectionPool."""
-    from unittest.mock import Mock
+    from unittest.mock import AsyncMock, Mock
 
-    return Mock()
+    pool = Mock()
+    # Make async methods return AsyncMock
+    pool._remove_connection = AsyncMock()
+    pool.force_subscribe = AsyncMock()
+    return pool
 
 
 @pytest.fixture
@@ -254,3 +263,203 @@ class TestTriggerDetection:
 
         # Only conn-2 should trigger
         mock_pool.get_connection_stats.assert_called_once()
+
+
+class TestRecyclingWorkflow:
+    """Test full recycling workflow."""
+
+    @pytest.mark.asyncio
+    async def test_successful_recycle(self, recycler, mock_registry, mock_pool):
+        """Full recycle workflow succeeds."""
+        # Setup
+        connection_id = "conn-old"
+        new_connection_id = "conn-new"
+        active_assets = ["asset-1", "asset-2", "asset-3"]
+
+        mock_registry.get_active_by_connection.return_value = frozenset(active_assets)
+        mock_pool.force_subscribe.return_value = new_connection_id
+        mock_pool.get_connection_stats.return_value = [
+            {
+                "connection_id": new_connection_id,
+                "is_healthy": True,
+            }
+        ]
+        mock_registry.reassign_connection.return_value = len(active_assets)
+
+        # Execute
+        result = await recycler._recycle_connection(connection_id)
+
+        # Verify
+        assert result is True
+        assert recycler.stats.recycles_initiated == 1
+        assert recycler.stats.recycles_completed == 1
+        assert recycler.stats.recycles_failed == 0
+        assert recycler.stats.markets_migrated == 3
+        assert recycler.stats.total_downtime_ms > 0
+
+        # Verify calls
+        mock_registry.get_active_by_connection.assert_called_once_with(connection_id)
+        # Check that force_subscribe was called with the correct assets (order doesn't matter)
+        assert mock_pool.force_subscribe.call_count == 1
+        call_args = mock_pool.force_subscribe.call_args[0][0]
+        assert set(call_args) == set(active_assets)
+        # Check reassign_connection was called with correct args (order doesn't matter for assets)
+        assert mock_registry.reassign_connection.call_count == 1
+        reassign_call_args = mock_registry.reassign_connection.call_args[0]
+        assert set(reassign_call_args[0]) == set(active_assets)
+        assert reassign_call_args[1] == connection_id
+        assert reassign_call_args[2] == new_connection_id
+        mock_pool._remove_connection.assert_called_once_with(connection_id)
+
+    @pytest.mark.asyncio
+    async def test_recycle_empty_connection(self, recycler, mock_registry, mock_pool):
+        """Recycle connection with no active markets."""
+        connection_id = "conn-old"
+
+        mock_registry.get_active_by_connection.return_value = frozenset()
+
+        result = await recycler._recycle_connection(connection_id)
+
+        assert result is True
+        assert recycler.stats.recycles_completed == 1
+        assert recycler.stats.markets_migrated == 0
+
+        # Should remove without creating replacement
+        mock_pool.force_subscribe.assert_not_called()
+        mock_pool._remove_connection.assert_called_once_with(connection_id)
+
+    @pytest.mark.asyncio
+    async def test_recycle_new_connection_fails(
+        self, recycler, mock_registry, mock_pool
+    ):
+        """Recycle aborts if new connection creation fails."""
+        connection_id = "conn-old"
+        active_assets = ["asset-1", "asset-2"]
+
+        mock_registry.get_active_by_connection.return_value = frozenset(active_assets)
+        mock_pool.force_subscribe.side_effect = Exception("Connection failed")
+
+        result = await recycler._recycle_connection(connection_id)
+
+        assert result is False
+        assert recycler.stats.recycles_initiated == 1
+        assert recycler.stats.recycles_failed == 1
+        assert recycler.stats.recycles_completed == 0
+
+        # Old connection should remain (not removed)
+        mock_pool._remove_connection.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_recycle_new_connection_unhealthy(
+        self, recycler, mock_registry, mock_pool
+    ):
+        """Recycle aborts if new connection is unhealthy."""
+        connection_id = "conn-old"
+        new_connection_id = "conn-new"
+        active_assets = ["asset-1"]
+
+        mock_registry.get_active_by_connection.return_value = frozenset(active_assets)
+        mock_pool.force_subscribe.return_value = new_connection_id
+        mock_pool.get_connection_stats.return_value = [
+            {
+                "connection_id": new_connection_id,
+                "is_healthy": False,  # Unhealthy
+            }
+        ]
+
+        result = await recycler._recycle_connection(connection_id)
+
+        assert result is False
+        assert recycler.stats.recycles_failed == 1
+
+        # Should not reassign or remove old connection
+        mock_registry.reassign_connection.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_recycle_reassignment_fails(self, recycler, mock_registry, mock_pool):
+        """Recycle aborts if registry reassignment fails."""
+        connection_id = "conn-old"
+        new_connection_id = "conn-new"
+        active_assets = ["asset-1"]
+
+        mock_registry.get_active_by_connection.return_value = frozenset(active_assets)
+        mock_pool.force_subscribe.return_value = new_connection_id
+        mock_pool.get_connection_stats.return_value = [
+            {
+                "connection_id": new_connection_id,
+                "is_healthy": True,
+            }
+        ]
+        mock_registry.reassign_connection.side_effect = Exception("Reassignment failed")
+
+        result = await recycler._recycle_connection(connection_id)
+
+        assert result is False
+        assert recycler.stats.recycles_failed == 1
+
+    @pytest.mark.asyncio
+    async def test_semaphore_limits_concurrency(
+        self, recycler, mock_registry, mock_pool
+    ):
+        """Semaphore limits concurrent recycles to MAX_CONCURRENT_RECYCLES."""
+        from src.lifecycle.recycler import MAX_CONCURRENT_RECYCLES
+
+        # Setup slow recycle
+        active_assets = ["asset-1"]
+        mock_registry.get_active_by_connection.return_value = frozenset(active_assets)
+
+        async def slow_force_subscribe(assets):
+            await asyncio.sleep(0.5)
+            return f"conn-{len(assets)}"
+
+        mock_pool.force_subscribe.side_effect = slow_force_subscribe
+        mock_pool.get_connection_stats.return_value = [
+            {
+                "connection_id": "conn-1",
+                "is_healthy": True,
+            }
+        ]
+        mock_registry.reassign_connection.return_value = 1
+
+        # Start MAX_CONCURRENT_RECYCLES + 1 recycles
+        tasks = [
+            asyncio.create_task(recycler._recycle_connection(f"conn-{i}"))
+            for i in range(MAX_CONCURRENT_RECYCLES + 1)
+        ]
+
+        # Wait a bit - some should be blocked by semaphore
+        await asyncio.sleep(0.1)
+
+        # Check active recycles (should be <= MAX_CONCURRENT_RECYCLES)
+        assert len(recycler.get_active_recycles()) <= MAX_CONCURRENT_RECYCLES
+
+        # Wait for all to complete
+        await asyncio.gather(*tasks)
+
+    @pytest.mark.asyncio
+    async def test_active_recycles_tracking(self, recycler, mock_registry, mock_pool):
+        """Connection ID added/removed from active_recycles correctly."""
+        connection_id = "conn-1"
+        active_assets = ["asset-1"]
+
+        mock_registry.get_active_by_connection.return_value = frozenset(active_assets)
+        mock_pool.force_subscribe.return_value = "conn-new"
+        mock_pool.get_connection_stats.return_value = [
+            {
+                "connection_id": "conn-new",
+                "is_healthy": True,
+            }
+        ]
+        mock_registry.reassign_connection.return_value = 1
+
+        # Before recycle
+        assert connection_id not in recycler.get_active_recycles()
+
+        # During recycle (check with task)
+        task = asyncio.create_task(recycler._recycle_connection(connection_id))
+        await asyncio.sleep(0.01)  # Let it start
+        assert connection_id in recycler.get_active_recycles()
+
+        # After recycle
+        await task
+        assert connection_id not in recycler.get_active_recycles()
