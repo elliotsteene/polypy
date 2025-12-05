@@ -106,3 +106,51 @@ class ConnectionRecycler:
     def get_active_recycles(self) -> set[str]:
         """Get connection IDs currently being recycled."""
         return self._active_recycles.copy()
+
+    async def _check_all_connections(self) -> None:
+        """
+        Check all connections for recycling triggers.
+
+        Triggers:
+        - Pollution ratio >= POLLUTION_THRESHOLD (30%)
+        - Age >= AGE_THRESHOLD (24 hours)
+        - Unhealthy status (is_healthy == False)
+
+        Skips connections already being recycled or marked as draining.
+        """
+        connection_stats = self._pool.get_connection_stats()
+
+        for stats in connection_stats:
+            connection_id = stats["connection_id"]
+
+            # Skip if already recycling
+            if connection_id in self._active_recycles:
+                logger.debug(f"Skipping {connection_id}: already recycling")
+                continue
+
+            # Skip if draining
+            if stats.get("is_draining"):
+                logger.debug(f"Skipping {connection_id}: already draining")
+                continue
+
+            # Check triggers
+            should_recycle = False
+            reason = ""
+
+            pollution_ratio = stats.get("pollution_ratio", 0.0)
+            age_seconds = stats.get("age_seconds", 0.0)
+            is_healthy = stats.get("is_healthy", True)
+
+            if pollution_ratio >= POLLUTION_THRESHOLD:
+                should_recycle = True
+                reason = f"pollution={pollution_ratio:.1%}"
+            elif age_seconds >= AGE_THRESHOLD:
+                should_recycle = True
+                reason = f"age={age_seconds / 3600:.1f}h"
+            elif not is_healthy:
+                should_recycle = True
+                reason = "unhealthy"
+
+            if should_recycle:
+                logger.info(f"Recycling trigger detected for {connection_id}: {reason}")
+                # TODO: Spawn recycling task (implemented in Phase 3)

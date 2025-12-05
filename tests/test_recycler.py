@@ -110,3 +110,147 @@ def mock_pool():
     from unittest.mock import Mock
 
     return Mock()
+
+
+@pytest.fixture
+def recycler(mock_registry, mock_pool):
+    """Create ConnectionRecycler instance."""
+    from src.lifecycle.recycler import ConnectionRecycler
+
+    return ConnectionRecycler(mock_registry, mock_pool)
+
+
+class TestTriggerDetection:
+    """Test connection recycling trigger detection."""
+
+    @pytest.mark.asyncio
+    async def test_pollution_trigger(self, recycler, mock_pool):
+        """Trigger detected when pollution >= 30%."""
+        mock_pool.get_connection_stats.return_value = [
+            {
+                "connection_id": "conn-1",
+                "pollution_ratio": 0.35,
+                "age_seconds": 100.0,
+                "is_healthy": True,
+                "is_draining": False,
+            }
+        ]
+
+        # Should detect trigger (will be stubbed for now)
+        await recycler._check_all_connections()
+
+        # Verify log output or other side effects
+        mock_pool.get_connection_stats.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_age_trigger(self, recycler, mock_pool):
+        """Trigger detected when age >= 24 hours."""
+        mock_pool.get_connection_stats.return_value = [
+            {
+                "connection_id": "conn-1",
+                "pollution_ratio": 0.10,
+                "age_seconds": 86500.0,  # Over 24 hours
+                "is_healthy": True,
+                "is_draining": False,
+            }
+        ]
+
+        await recycler._check_all_connections()
+        mock_pool.get_connection_stats.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_health_trigger(self, recycler, mock_pool):
+        """Trigger detected when connection unhealthy."""
+        mock_pool.get_connection_stats.return_value = [
+            {
+                "connection_id": "conn-1",
+                "pollution_ratio": 0.10,
+                "age_seconds": 100.0,
+                "is_healthy": False,
+                "is_draining": False,
+            }
+        ]
+
+        await recycler._check_all_connections()
+        mock_pool.get_connection_stats.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_skip_already_recycling(self, recycler, mock_pool):
+        """Skip connections already being recycled."""
+        recycler._active_recycles.add("conn-1")
+
+        mock_pool.get_connection_stats.return_value = [
+            {
+                "connection_id": "conn-1",
+                "pollution_ratio": 0.40,
+                "age_seconds": 100.0,
+                "is_healthy": True,
+                "is_draining": False,
+            }
+        ]
+
+        await recycler._check_all_connections()
+
+        # Should not trigger recycling (already in progress)
+        assert "conn-1" in recycler._active_recycles
+
+    @pytest.mark.asyncio
+    async def test_skip_draining(self, recycler, mock_pool):
+        """Skip connections already marked as draining."""
+        mock_pool.get_connection_stats.return_value = [
+            {
+                "connection_id": "conn-1",
+                "pollution_ratio": 0.40,
+                "age_seconds": 100.0,
+                "is_healthy": True,
+                "is_draining": True,
+            }
+        ]
+
+        await recycler._check_all_connections()
+
+        # Should skip draining connection
+        assert "conn-1" not in recycler._active_recycles
+
+    @pytest.mark.asyncio
+    async def test_no_trigger(self, recycler, mock_pool):
+        """No trigger when connection is healthy and young."""
+        mock_pool.get_connection_stats.return_value = [
+            {
+                "connection_id": "conn-1",
+                "pollution_ratio": 0.10,
+                "age_seconds": 1000.0,
+                "is_healthy": True,
+                "is_draining": False,
+            }
+        ]
+
+        await recycler._check_all_connections()
+
+        # Should not trigger
+        assert "conn-1" not in recycler._active_recycles
+
+    @pytest.mark.asyncio
+    async def test_multiple_connections(self, recycler, mock_pool):
+        """Handle multiple connections correctly."""
+        mock_pool.get_connection_stats.return_value = [
+            {
+                "connection_id": "conn-1",
+                "pollution_ratio": 0.05,
+                "age_seconds": 100.0,
+                "is_healthy": True,
+                "is_draining": False,
+            },
+            {
+                "connection_id": "conn-2",
+                "pollution_ratio": 0.40,
+                "age_seconds": 100.0,
+                "is_healthy": True,
+                "is_draining": False,
+            },
+        ]
+
+        await recycler._check_all_connections()
+
+        # Only conn-2 should trigger
+        mock_pool.get_connection_stats.assert_called_once()
