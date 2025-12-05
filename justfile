@@ -20,3 +20,6 @@ test-cov:
 check-test:
     @ just check
     @ just test
+
+sync-stack-changes:
+    @ git town sync --stack --detached
