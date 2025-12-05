@@ -97,3 +97,4 @@ The `src/exercises/` directory contains reference implementations for learning e
 - **Slots**: Used throughout for reduced memory footprint
 - **Event-driven lifecycle**: Asyncio-based with proper signal handling
 - **Exponential backoff**: Reconnection strategy prevents thundering herd
+- After completing a phase of the implementation plan, use the stacked-pr skill to either create a new PR stack (if on main branch) or append a new change stack
