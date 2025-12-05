@@ -23,3 +23,7 @@ check-test:
 
 sync-stack-changes:
     @ git town sync --stack --detached
+
+ship:
+    @ git town ship
+    @ git town sync --all
