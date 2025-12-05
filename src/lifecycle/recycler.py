@@ -296,3 +296,90 @@ class ConnectionRecycler:
             return False
         finally:
             self._active_recycles.discard(connection_id)
+
+    async def start(self) -> None:
+        """
+        Start the recycler monitoring loop.
+
+        Begins checking connections every HEALTH_CHECK_INTERVAL seconds.
+        """
+        if self._running:
+            logger.warning("ConnectionRecycler already running")
+            return
+
+        self._running = True
+
+        self._monitor_task = asyncio.create_task(
+            self._monitor_loop(),
+            name="connection-recycler-monitor",
+        )
+
+        logger.info(
+            f"ConnectionRecycler started (check interval: {HEALTH_CHECK_INTERVAL}s, "
+            f"pollution threshold: {POLLUTION_THRESHOLD:.0%}, "
+            f"age threshold: {AGE_THRESHOLD / 3600:.0f}h)"
+        )
+
+    async def stop(self) -> None:
+        """
+        Stop the recycler and cleanup.
+
+        Cancels monitoring task and waits for active recycles to complete.
+        """
+        if not self._running:
+            return
+
+        self._running = False
+
+        # Cancel monitor task
+        if self._monitor_task:
+            self._monitor_task.cancel()
+            try:
+                await self._monitor_task
+            except asyncio.CancelledError:
+                pass
+
+        # Wait for active recycles to complete (with timeout)
+        if self._active_recycles:
+            logger.info(
+                f"Waiting for {len(self._active_recycles)} active recycles to complete"
+            )
+
+            timeout = 30.0  # Max 30 seconds
+            deadline = time.monotonic() + timeout
+
+            while self._active_recycles and time.monotonic() < deadline:
+                await asyncio.sleep(0.5)
+
+            if self._active_recycles:
+                logger.warning(
+                    f"Timed out waiting for recycles: {self._active_recycles}"
+                )
+
+        logger.info(
+            f"ConnectionRecycler stopped. Stats: "
+            f"initiated={self._stats.recycles_initiated}, "
+            f"completed={self._stats.recycles_completed}, "
+            f"failed={self._stats.recycles_failed}, "
+            f"success_rate={self._stats.success_rate:.1%}"
+        )
+
+    async def _monitor_loop(self) -> None:
+        """
+        Monitor connections for recycling needs.
+
+        Runs every HEALTH_CHECK_INTERVAL seconds while running.
+        """
+        while self._running:
+            try:
+                await asyncio.sleep(HEALTH_CHECK_INTERVAL)
+
+                if not self._running:
+                    break
+
+                await self._check_all_connections()
+
+            except asyncio.CancelledError:
+                break
+            except Exception as e:
+                logger.error(f"Monitor loop error: {e}", exc_info=True)

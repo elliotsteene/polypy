@@ -463,3 +463,135 @@ class TestRecyclingWorkflow:
         # After recycle
         await task
         assert connection_id not in recycler.get_active_recycles()
+
+
+class TestLifecycle:
+    """Test start/stop lifecycle management."""
+
+    @pytest.mark.asyncio
+    async def test_start(self, recycler):
+        """Start initializes monitoring loop."""
+        await recycler.start()
+
+        assert recycler.is_running is True
+        assert recycler._monitor_task is not None
+
+        # Cleanup
+        await recycler.stop()
+
+    @pytest.mark.asyncio
+    async def test_start_idempotent(self, recycler):
+        """Starting already-running recycler is no-op."""
+        await recycler.start()
+        task1 = recycler._monitor_task
+
+        await recycler.start()  # Second start
+        task2 = recycler._monitor_task
+
+        assert task1 is task2  # Same task
+
+        await recycler.stop()
+
+    @pytest.mark.asyncio
+    async def test_stop(self, recycler):
+        """Stop cancels monitoring task."""
+        await recycler.start()
+        await recycler.stop()
+
+        assert recycler.is_running is False
+        assert recycler._monitor_task.cancelled() or recycler._monitor_task.done()
+
+    @pytest.mark.asyncio
+    async def test_stop_idempotent(self, recycler):
+        """Stopping already-stopped recycler is no-op."""
+        await recycler.start()
+        await recycler.stop()
+        await recycler.stop()  # Second stop
+
+        assert recycler.is_running is False
+
+    @pytest.mark.asyncio
+    async def test_stop_waits_for_active_recycles(
+        self, recycler, mock_registry, mock_pool
+    ):
+        """Stop waits for active recycles to complete."""
+        await recycler.start()
+
+        # Simulate active recycle
+        recycler._active_recycles.add("conn-1")
+
+        # Stop in background
+        stop_task = asyncio.create_task(recycler.stop())
+
+        # Wait a bit
+        await asyncio.sleep(0.1)
+
+        # Stop should be waiting
+        assert not stop_task.done()
+
+        # Complete the recycle
+        recycler._active_recycles.discard("conn-1")
+
+        # Now stop should complete
+        await asyncio.wait_for(stop_task, timeout=1.0)
+        assert recycler.is_running is False
+
+    @pytest.mark.asyncio
+    async def test_monitor_loop_checks_connections(
+        self, mock_registry, mock_pool, monkeypatch
+    ):
+        """Monitor loop calls _check_all_connections periodically."""
+        from unittest.mock import AsyncMock
+
+        from src.lifecycle.recycler import ConnectionRecycler
+
+        # Speed up for testing
+        from src.lifecycle import recycler as recycler_module
+
+        monkeypatch.setattr(recycler_module, "HEALTH_CHECK_INTERVAL", 0.1)
+
+        # Create recycler and mock the check method
+        recycler = ConnectionRecycler(mock_registry, mock_pool)
+        mock_check = AsyncMock()
+
+        # Patch at the class level
+        monkeypatch.setattr(ConnectionRecycler, "_check_all_connections", mock_check)
+
+        await recycler.start()
+        await asyncio.sleep(0.35)  # Should trigger ~3 checks
+        await recycler.stop()
+
+        # Verify _check_all_connections was called at least twice
+        assert mock_check.call_count >= 2
+
+    @pytest.mark.asyncio
+    async def test_monitor_loop_handles_exceptions(
+        self, mock_registry, mock_pool, monkeypatch
+    ):
+        """Monitor loop continues after exceptions."""
+        from src.lifecycle.recycler import ConnectionRecycler
+
+        # Speed up for testing
+        from src.lifecycle import recycler as recycler_module
+
+        monkeypatch.setattr(recycler_module, "HEALTH_CHECK_INTERVAL", 0.05)
+
+        # Create recycler and mock the check method to fail once then succeed
+        recycler = ConnectionRecycler(mock_registry, mock_pool)
+
+        call_count = 0
+
+        async def failing_check(self):
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                raise Exception("Test error")
+
+        monkeypatch.setattr(ConnectionRecycler, "_check_all_connections", failing_check)
+
+        await recycler.start()
+        await asyncio.sleep(0.25)  # Longer wait to ensure multiple cycles
+        await recycler.stop()
+
+        # Should have recovered and continued
+        assert call_count >= 2
