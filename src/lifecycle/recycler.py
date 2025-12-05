@@ -70,6 +70,7 @@ class ConnectionRecycler:
         "_running",
         "_monitor_task",
         "_active_recycles",
+        "_active_recycle_tasks",
         "_stats",
         "_recycle_semaphore",
     )
@@ -91,6 +92,7 @@ class ConnectionRecycler:
         self._running = False
         self._monitor_task: asyncio.Task | None = None
         self._active_recycles: set[str] = set()
+        self._active_recycle_tasks: set[asyncio.Task] = set()
         self._stats = RecycleStats()
         self._recycle_semaphore = asyncio.Semaphore(MAX_CONCURRENT_RECYCLES)
 
@@ -154,10 +156,12 @@ class ConnectionRecycler:
 
             if should_recycle:
                 logger.info(f"Recycling trigger detected for {connection_id}: {reason}")
-                asyncio.create_task(
+                task = asyncio.create_task(
                     self._recycle_connection(connection_id),
                     name=f"recycle-{connection_id}",
                 )
+                self._active_recycle_tasks.add(task)
+                task.add_done_callback(self._active_recycle_tasks.discard)
 
     async def _recycle_connection(self, connection_id: str) -> bool:
         """
@@ -340,21 +344,24 @@ class ConnectionRecycler:
                 pass
 
         # Wait for active recycles to complete (with timeout)
-        if self._active_recycles:
+        if self._active_recycle_tasks:
             logger.info(
-                f"Waiting for {len(self._active_recycles)} active recycles to complete"
+                f"Waiting for {len(self._active_recycle_tasks)} active recycles to complete"
             )
 
-            timeout = 30.0  # Max 30 seconds
-            deadline = time.monotonic() + timeout
-
-            while self._active_recycles and time.monotonic() < deadline:
-                await asyncio.sleep(0.5)
-
-            if self._active_recycles:
-                logger.warning(
-                    f"Timed out waiting for recycles: {self._active_recycles}"
+            try:
+                await asyncio.wait_for(
+                    asyncio.gather(*self._active_recycle_tasks, return_exceptions=True),
+                    timeout=30.0,
                 )
+            except asyncio.TimeoutError:
+                logger.warning(
+                    f"Timed out waiting for {len(self._active_recycle_tasks)} recycle tasks"
+                )
+                # Cancel remaining tasks
+                for task in self._active_recycle_tasks:
+                    if not task.done():
+                        task.cancel()
 
         logger.info(
             f"ConnectionRecycler stopped. Stats: "
