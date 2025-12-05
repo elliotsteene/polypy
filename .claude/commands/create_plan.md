@@ -159,6 +159,25 @@ Once aligned on approach:
    Does this phasing make sense? Should I adjust the order or granularity?
    ```
 
+   **Stacked PR Phase Design**:
+   Each phase should be optimized for stacked PRs, where each phase typically becomes one PR in the stack:
+
+   - **Single Responsibility**: Each phase accomplishes one clear, cohesive objective
+   - **Independently Mergeable**: Must pass all CI tests and be deployable on its own
+   - **Reviewable Size**: Aim for <300 lines of changes per phase for easier review
+   - **Flexible Granularity**:
+     - Combine trivial phases that are too small to review separately
+     - Split large phases that would be overwhelming to review
+     - Balance between atomic changes and logical coherence
+   - **Clear Dependencies**: Later phases can build on earlier ones, but minimize tight coupling
+   - **One Phase → One PR**: Generally each phase becomes one PR, but adjust based on reviewability
+
+   The goal is to make each PR in the stack:
+   - Smaller in scope and easier to review than a monolithic PR
+   - More coherent with a clear, focused purpose
+   - Self-documenting with clear commit messages and PR descriptions
+   - Part of a guided journey through the implementation 
+
 2. **Get feedback on structure** before writing details
 
 ### Step 4: Detailed Plan Writing
@@ -203,10 +222,26 @@ After structure approval:
 
 [High-level strategy and reasoning]
 
+## Stacked PR Strategy
+
+This plan is designed for implementation using stacked PRs, where each phase becomes one branch/PR in a stack:
+
+- **Phase Sequencing**: Each phase builds on the previous one, allowing reviewers to understand the implementation journey
+- **Independent Review**: Each PR can be reviewed and approved independently while maintaining the stack context
+- **Pause Points**: Manual verification happens after each phase before proceeding to the next
+- **Estimated Scope**: Each phase should be roughly <300 lines of changes for optimal reviewability
+- **Stack Management**: Use the `stacked-pr` skill after completing each phase to maintain the stack
+
 ## Phase 1: [Descriptive Name]
 
 ### Overview
 [What this phase accomplishes]
+
+### PR Context
+**Stack Position**: First PR in the stack (base: main)
+**Purpose**: [One-sentence description of why this phase is needed]
+**Enables**: [What later phases depend on this foundation]
+**Review Focus**: [What reviewers should pay attention to]
 
 ### Changes Required:
 
@@ -239,7 +274,19 @@ After structure approval:
 
 ## Phase 2: [Descriptive Name]
 
-[Similar structure with both automated and manual success criteria...]
+### Overview
+[What this phase accomplishes]
+
+### PR Context
+**Stack Position**: Second PR in the stack (base: phase-1-branch)
+**Purpose**: [One-sentence description of why this phase is needed]
+**Builds On**: [What from Phase 1 this phase uses]
+**Enables**: [What later phases depend on this]
+**Review Focus**: [What reviewers should pay attention to]
+
+### Changes Required:
+
+[Similar structure with file changes, automated and manual success criteria...]
 
 ---
 
@@ -313,25 +360,50 @@ After structure approval:
    - Allow course corrections
    - Work collaboratively
 
-3. **Be Thorough**:
+3. **Design for Stacked PRs**:
+   - Each phase becomes a branch and PR in a stack, making reviews easier
+   - **Phase Boundaries**: Split work to maximize reviewability and testability
+     - Aim for <300 lines of changes per phase as a rough guideline
+     - Each phase must pass CI independently (tests, linting, type checks)
+     - Balance granularity: combine trivial changes, split overwhelming ones
+   - **Dependency Flow**: Structure phases to tell a story
+     - Early phases: Infrastructure, foundations, data models
+     - Middle phases: Core logic, business rules
+     - Later phases: Integration, UI, polish
+     - Each phase should make sense on its own, even if it enables later work
+   - **Review Journey**: Consider the reviewer's experience
+     - Each PR description explains: "This PR does X, which enables Y in the next PR"
+     - Changes should be coherent and focused within each phase
+     - Avoid mixing unrelated concerns in a single phase
+   - **Manual Verification Points**: Build in pause points for testing
+     - After each phase, automated CI must pass
+     - Manual testing happens before moving to next phase
+     - If issues found: pause, fix in current branch, then continue
+     - The stack should remain rebaseable if early phases need updates
+   - **Avoid Over-Splitting**: Don't break up coherent changes unnecessarily
+     - A small refactor that enables a feature can be in the same phase
+     - Don't separate test files from the code they test
+     - Related files (model + store methods + tests) can stay together if reviewable
+
+4. **Be Thorough**:
    - Read all context files COMPLETELY before planning
    - Research actual code patterns using parallel sub-tasks
    - Include specific file paths and line numbers
    - Write measurable success criteria with clear automated vs manual distinction
-   - automated steps should use `make` whenever possible - for example `make -C humanlayer-wui check` instead of `cd humanlayer-wui && bun run fmt`
+   - automated steps should use `just` whenever possible - for example `just check` instead of `uv run ruff check && uv run ruff format`
 
-4. **Be Practical**:
+5. **Be Practical**:
    - Focus on incremental, testable changes
    - Consider migration and rollback
    - Think about edge cases
    - Include "what we're NOT doing"
 
-5. **Track Progress**:
+6. **Track Progress**:
    - Use TodoWrite to track planning tasks
    - Update todos as you complete research
    - Mark planning tasks complete when done
 
-6. **No Open Questions in Final Plan**:
+7. **No Open Questions in Final Plan**:
    - If you encounter open questions during planning, STOP
    - Research or ask for clarification immediately
    - Do NOT write the plan with unresolved questions
@@ -343,7 +415,7 @@ After structure approval:
 **Always separate success criteria into two categories:**
 
 1. **Automated Verification** (can be run by execution agents):
-   - Commands that can be run: `make test`, `npm run lint`, etc.
+   - Commands that can be run: `just test`, `just check`, etc.
    - Specific files that should exist
    - Code compilation/type checking
    - Automated test suites
@@ -373,25 +445,39 @@ After structure approval:
 
 ## Common Patterns
 
-### For Database Changes:
-- Start with schema/migration
-- Add store methods
-- Update business logic
-- Expose via API
-- Update clients
+### For Database Changes (Stacked PR Approach):
+**Phase 1**: Schema/migration + tests (foundation)
+**Phase 2**: Store methods + unit tests (data access layer)
+**Phase 3**: Business logic updates (application layer)
+**Phase 4**: API endpoints + integration tests (interface layer)
+**Phase 5**: Client updates (consumer layer)
 
-### For New Features:
-- Research existing patterns first
-- Start with data model
-- Build backend logic
-- Add API endpoints
-- Implement UI last
+*Each phase is independently testable and deployable*
 
-### For Refactoring:
-- Document current behavior
-- Plan incremental changes
-- Maintain backwards compatibility
-- Include migration strategy
+### For New Features (Stacked PR Approach):
+**Phase 1**: Research + data model definition + tests (foundation)
+**Phase 2**: Core backend logic + unit tests (business logic)
+**Phase 3**: API endpoints + integration tests (interface)
+**Phase 4**: UI implementation + component tests (presentation)
+**Phase 5**: End-to-end tests + documentation (validation)
+
+*Each phase adds value and can be reviewed independently*
+
+### For Refactoring (Stacked PR Approach):
+**Phase 1**: Add tests for current behavior (safety net)
+**Phase 2**: Extract/refactor internal implementation (no API changes)
+**Phase 3**: Update API surface if needed (interface changes)
+**Phase 4**: Update consumers + deprecation notices (migration)
+**Phase 5**: Remove old code (cleanup)
+
+*Each phase maintains backwards compatibility until Phase 5*
+
+### General Stacked PR Patterns:
+- **Infrastructure-First**: Set up shared utilities, types, or configs before features that use them
+- **Backend-Before-Frontend**: API endpoints before UI that consumes them
+- **Tests-With-Code**: Include tests in the same phase as the code they test
+- **Migrations-Early**: Database changes in early phases, before logic that depends on them
+- **Integration-Late**: Integration and E2E tests after individual components are solid
 
 ## Sub-task Spawning Best Practices
 
