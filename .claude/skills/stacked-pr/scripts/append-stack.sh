@@ -48,7 +48,7 @@ git town append "$FULL_BRANCH_NAME"
 
 # Commit changes on the new branch
 echo "Committing changes..."
-git add --all -- ':!thoughts'
+git add .
 git commit -m "$COMMIT_MSG"
 
 # Push branch to remote
