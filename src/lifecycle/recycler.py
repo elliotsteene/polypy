@@ -3,12 +3,15 @@
 import asyncio
 import time
 from dataclasses import dataclass
+from typing import TYPE_CHECKING
 
 import structlog
 
-from src.connection.pool import ConnectionPool
 from src.core.logging import Logger
 from src.registry.asset_registry import AssetRegistry
+
+if TYPE_CHECKING:
+    from src.connection.pool import ConnectionPool
 
 logger: Logger = structlog.get_logger()
 
@@ -78,7 +81,7 @@ class ConnectionRecycler:
     def __init__(
         self,
         registry: AssetRegistry,
-        pool: ConnectionPool,
+        pool: "ConnectionPool",
     ) -> None:
         """
         Initialize recycler.

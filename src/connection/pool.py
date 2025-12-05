@@ -18,6 +18,7 @@ import structlog
 from src.connection.types import ConnectionStatus, MessageCallback
 from src.connection.websocket import WebsocketConnection
 from src.core.logging import Logger
+from src.lifecycle.recycler import ConnectionRecycler, RecycleStats
 from src.messages.parser import MessageParser
 from src.registry.asset_registry import AssetRegistry
 
@@ -59,6 +60,7 @@ class ConnectionPool:
         "_message_parser",
         "_connections",
         "_subscription_task",
+        "_recycler",
         "_running",
         "_lock",
     )
@@ -84,6 +86,9 @@ class ConnectionPool:
         self._subscription_task: asyncio.Task | None = None
         self._running = False
         self._lock = asyncio.Lock()
+
+        # Initialize recycler
+        self._recycler = ConnectionRecycler(registry, self)
 
     @property
     def connection_count(self) -> int:
@@ -126,6 +131,9 @@ class ConnectionPool:
             self._subscription_loop(), name="pool-subscription-manager"
         )
 
+        # Start recycler
+        await self._recycler.start()
+
         logger.info("Connection pool started")
 
     async def stop(self) -> None:
@@ -134,6 +142,9 @@ class ConnectionPool:
             return
 
         self._running = False
+
+        # Stop recycler first (before stopping connections)
+        await self._recycler.stop()
 
         # Stop subscription task
         if self._subscription_task:
@@ -152,7 +163,7 @@ class ConnectionPool:
         logger.info("Connection pool stopped")
 
     async def _subscription_loop(self) -> None:
-        """Periodically process pending markets and check for recycling."""
+        """Periodically process pending markets."""
         while self._running:
             try:
                 await asyncio.sleep(BATCH_SUBSCRIPTION_INTERVAL)
@@ -161,7 +172,7 @@ class ConnectionPool:
                     break
 
                 await self._process_pending_markets()
-                await self._check_for_recycling()
+                # Connection recycling is now handled by ConnectionRecycler
 
             except asyncio.CancelledError:
                 break
@@ -371,3 +382,8 @@ class ConnectionPool:
         )
 
         return connection_id
+
+    @property
+    def recycler_stats(self) -> RecycleStats:
+        """Get recycler statistics."""
+        return self._recycler.stats

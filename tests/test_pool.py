@@ -940,8 +940,9 @@ class TestRecyclingDetection:
 
     @pytest.mark.asyncio
     async def test_recycling_integration_with_subscription_loop(self):
-        """Test that recycling detection triggers within the subscription loop."""
-        # Arrange
+        """Test that stub recycling can be manually triggered via _check_for_recycling."""
+        # NOTE: Automatic recycling is now handled by ConnectionRecycler
+        # This test verifies the stub implementation can still be manually triggered
         from unittest.mock import AsyncMock, MagicMock
 
         registry = AssetRegistry()
@@ -971,25 +972,12 @@ class TestRecyclingDetection:
         )
         await registry.mark_expired([f"asset-{i}" for i in range(70)])  # 70% pollution
 
-        # Shorten intervals for testing
-        import src.connection.pool
+        # Act - manually trigger check
+        await pool._check_for_recycling()
+        await asyncio.sleep(0.2)  # Give time for recycling task to run
 
-        original_interval = src.connection.pool.BATCH_SUBSCRIPTION_INTERVAL
-        src.connection.pool.BATCH_SUBSCRIPTION_INTERVAL = 0.1
-
-        try:
-            # Act
-            await pool.start()
-            await asyncio.sleep(0.5)  # Let recycling detection happen
-
-            # Assert - recycling should be triggered, connection marked as draining
-            # Give time for the recycling task to run
-            await asyncio.sleep(0.2)
-            assert info.is_draining is True
-
-        finally:
-            src.connection.pool.BATCH_SUBSCRIPTION_INTERVAL = original_interval
-            await pool.stop()
+        # Assert - recycling should be triggered, connection marked as draining
+        assert info.is_draining is True
 
 
 class TestStatsAndForceSubscribe:
@@ -1365,3 +1353,60 @@ class TestStatsAndForceSubscribe:
         assert len(subscribed1) == 50
         assert len(subscribed2) == 50
         assert subscribed1.isdisjoint(subscribed2)  # No overlap
+
+
+class TestRecyclerIntegration:
+    """Tests for ConnectionPool integration with ConnectionRecycler."""
+
+    @pytest.mark.asyncio
+    async def test_pool_starts_recycler(self):
+        """Pool starts recycler on start()."""
+        registry = AssetRegistry()
+
+        def mock_callback(msg):
+            pass
+
+        pool = ConnectionPool(registry, mock_callback)
+
+        assert pool._recycler.is_running is False
+
+        await pool.start()
+
+        assert pool._recycler.is_running is True
+
+        await pool.stop()
+
+        assert pool._recycler.is_running is False
+
+    @pytest.mark.asyncio
+    async def test_pool_stops_recycler(self):
+        """Pool stops recycler on stop()."""
+        registry = AssetRegistry()
+
+        def mock_callback(msg):
+            pass
+
+        pool = ConnectionPool(registry, mock_callback)
+
+        await pool.start()
+        assert pool._recycler.is_running is True
+
+        await pool.stop()
+        assert pool._recycler.is_running is False
+
+    @pytest.mark.asyncio
+    async def test_recycler_stats_property(self):
+        """Pool exposes recycler_stats property."""
+        registry = AssetRegistry()
+
+        def mock_callback(msg):
+            pass
+
+        pool = ConnectionPool(registry, mock_callback)
+
+        stats = pool.recycler_stats
+
+        assert stats is not None
+        assert stats.recycles_initiated == 0
+        assert stats.recycles_completed == 0
+        assert stats.recycles_failed == 0
