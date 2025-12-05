@@ -517,8 +517,16 @@ class TestLifecycle:
         """Stop waits for active recycles to complete."""
         await recycler.start()
 
-        # Simulate active recycle
-        recycler._active_recycles.add("conn-1")
+        # Simulate active recycle with a long-running task
+        async def fake_recycle():
+            recycler._active_recycles.add("conn-1")
+            try:
+                await asyncio.sleep(10)  # Long delay
+            finally:
+                recycler._active_recycles.discard("conn-1")
+
+        recycle_task = asyncio.create_task(fake_recycle())
+        recycler._active_recycle_tasks.add(recycle_task)
 
         # Stop in background
         stop_task = asyncio.create_task(recycler.stop())
@@ -529,8 +537,12 @@ class TestLifecycle:
         # Stop should be waiting
         assert not stop_task.done()
 
-        # Complete the recycle
-        recycler._active_recycles.discard("conn-1")
+        # Complete the recycle by cancelling it
+        recycle_task.cancel()
+        try:
+            await recycle_task
+        except asyncio.CancelledError:
+            pass
 
         # Now stop should complete
         await asyncio.wait_for(stop_task, timeout=1.0)
