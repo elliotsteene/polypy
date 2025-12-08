@@ -13,6 +13,7 @@ from src.messages.parser import MessageParser
 from src.registry.asset_entry import AssetStatus
 from src.registry.asset_registry import AssetRegistry
 from src.router import MessageRouter
+from src.server import HTTPServer
 from src.worker import WorkerManager
 
 logger: Logger = structlog.getLogger(__name__)
@@ -36,14 +37,23 @@ class PolyPy:
         "_message_parser",
         "_running",
         "_shutdown_event",
+        "_http_server",
+        "_enable_http",
+        "_http_port",
     )
 
-    def __init__(self, num_workers: int = 1) -> None:
+    def __init__(
+        self,
+        num_workers: int = 1,
+        enable_http: bool = False,
+        http_port: int = 8080,
+    ) -> None:
         """Initialise application
 
         Args:
             num_workers: Number of orderbook worker processes (default = 1)
-
+            enable_http: Whether to start HTTP server (default = False)
+            http_port: Port for HTTP server (default = 8080)
         """
         self._validate_num_workers(num_workers)
         self._num_workers = num_workers
@@ -56,6 +66,11 @@ class PolyPy:
         self._lifecycle: LifecycleController | None = None
         self._recycler: ConnectionRecycler | None = None
         self._message_parser: MessageParser | None = None
+
+        # HTTP server configuration
+        self._enable_http = enable_http
+        self._http_port = http_port
+        self._http_server: HTTPServer | None = None
 
         self._running = False
         self._shutdown_event = asyncio.Event()
@@ -154,7 +169,21 @@ class PolyPy:
             await self._recycler.start()
             logger.info("✓ ConnectionRecycler started")
 
-            # 10. Running application
+            # 10. HTTP Server (if enabled)
+            if self._enable_http:
+                self._http_server = HTTPServer(
+                    app=self,  # type: ignore[arg-type]
+                    port=self._http_port,
+                )
+                try:
+                    await self._http_server.start()
+                    logger.info(f"✓ HTTP server started on port {self._http_port}")
+                except Exception as e:
+                    logger.error(f"Failed to start HTTP server: {e}")
+                    # Don't fail startup if HTTP server fails
+                    self._http_server = None
+
+            # 11. Running application
             self._running = True
             logger.info("✓ PolyPy started successfully!")
 
@@ -184,6 +213,13 @@ class PolyPy:
                 await self._recycler.stop()
             except Exception as e:
                 logger.error(f"Error stopping recycler: {e}")
+
+        # Stop HTTP server (if running)
+        if self._http_server:
+            try:
+                await self._http_server.stop()
+            except Exception as e:
+                logger.error(f"Error stopping HTTP server: {e}")
 
         if self._lifecycle:
             try:
