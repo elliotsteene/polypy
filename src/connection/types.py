@@ -14,4 +14,4 @@ class ConnectionStatus(IntEnum):
     CLOSED = auto()  # Permanently closed
 
 
-MessageCallback = Callable[[str, ParsedMessage], Awaitable[None]]
+MessageCallback = Callable[[str, ParsedMessage], Awaitable[bool]]
