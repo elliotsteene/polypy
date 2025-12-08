@@ -6,9 +6,9 @@ from typing import Any
 import structlog
 
 from src.connection.pool import ConnectionPool
-from src.lifecycle.recycler import ConnectionRecycler
 from src.core.logging import Logger
 from src.lifecycle.controller import LifecycleController
+from src.lifecycle.recycler import ConnectionRecycler
 from src.messages.parser import MessageParser
 from src.registry.asset_entry import AssetStatus
 from src.registry.asset_registry import AssetRegistry
@@ -38,11 +38,11 @@ class PolyPy:
         "_shutdown_event",
     )
 
-    def __init__(self, num_workers: int = 4) -> None:
+    def __init__(self, num_workers: int = 1) -> None:
         """Initialise application
 
         Args:
-            num_workers: Number of orderbook worker processes (default = 4)
+            num_workers: Number of orderbook worker processes (default = 1)
 
         """
         self._validate_num_workers(num_workers)

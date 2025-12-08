@@ -15,7 +15,7 @@ class TestPolyPyInit:
     def test_init_default_params(self):
         """Test initialization with default parameters."""
         app = PolyPy()
-        assert app._num_workers == 4
+        assert app._num_workers == 1
         assert not app.is_running
         assert app._registry is None
         assert app._workers is None
