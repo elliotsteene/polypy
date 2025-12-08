@@ -569,3 +569,34 @@ class TestPolyPyLifecycleCallbacks:
 
         # Should not raise
         await app._on_market_expired("market_expired", "asset-456")
+
+
+class TestPolyPyHTTPConfiguration:
+    """Test PolyPy HTTP server configuration."""
+
+    def test_default_http_disabled(self):
+        """Test HTTP server disabled by default."""
+        app = PolyPy()
+        assert app._enable_http is False
+        assert app._http_port == 8080
+        assert app._http_server is None
+
+    def test_enable_http_configuration(self):
+        """Test enabling HTTP server."""
+        app = PolyPy(enable_http=True, http_port=9090)
+        assert app._enable_http is True
+        assert app._http_port == 9090
+        assert app._http_server is None  # Not created until start()
+
+    @pytest.mark.asyncio
+    async def test_http_server_not_created_when_disabled(self):
+        """Test HTTP server not created when disabled."""
+        app = PolyPy(enable_http=False)
+
+        # Mock components to prevent actual startup
+        app._registry = MagicMock()
+        app._workers = MagicMock()
+        app._workers.is_healthy.return_value = True
+        app._running = True
+
+        assert app._http_server is None

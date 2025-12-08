@@ -55,7 +55,10 @@ logger: Logger = structlog.get_logger()
 async def main():
     logger.info("Starting PolyPy application...")
     max_workers = mp.cpu_count() - 1
-    polypy = PolyPy(num_workers=max_workers)
+    polypy = PolyPy(
+        num_workers=max_workers,
+        enable_http=True,
+    )
 
     await polypy.run()
     # parser = MessageParser()
