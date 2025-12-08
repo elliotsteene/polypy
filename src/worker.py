@@ -8,7 +8,6 @@ Each worker:
 - Reports health and stats periodically
 """
 
-import logging
 import os
 import signal
 import time
@@ -19,10 +18,13 @@ from multiprocessing import Queue as MPQueue
 from multiprocessing.synchronize import Event
 from queue import Empty, Full
 
+import structlog
+
+from src.core.logging import Logger
 from src.messages.protocol import EventType, ParsedMessage
 from src.orderbook.orderbook_store import Asset, OrderbookStore
 
-logger = logging.getLogger(__name__)
+logger: Logger = structlog.getLogger(__name__)
 
 # Configuration constants
 QUEUE_TIMEOUT: float = 0.1  # 100ms timeout for queue.get()

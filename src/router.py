@@ -7,12 +7,15 @@ multiprocessing queues using consistent hashing for worker assignment.
 
 import asyncio
 import hashlib
-import logging
 import time
 from dataclasses import dataclass
 from multiprocessing import Queue as MPQueue
 from queue import Full
 from typing import TYPE_CHECKING, Final
+
+import structlog
+
+from src.core.logging import Logger
 
 if TYPE_CHECKING:
     from src.messages.protocol import ParsedMessage
@@ -25,7 +28,7 @@ else:
     # At runtime, just use the base class without subscripting
     WorkerQueue = MPQueue
 
-logger = logging.getLogger(__name__)
+logger: Logger = structlog.getLogger(__name__)
 
 # Configuration constants
 ASYNC_QUEUE_SIZE: Final[int] = 10_000  # Max pending in async queue

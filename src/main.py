@@ -80,7 +80,7 @@ async def main():
     loop = asyncio.get_event_loop()
     shutdown_event = asyncio.Event()
 
-    def signal_handler():
+    def signal_handler(*args, **kwargs) -> None:
         logger.info("Shutdown signal received")
         shutdown_event.set()
 

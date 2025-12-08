@@ -351,7 +351,7 @@ class ConnectionRecycler:
 
             try:
                 await asyncio.wait_for(
-                    asyncio.gather(*self._active_recycle_tasks, return_exceptions=True),
+                    asyncio.gather(*self._active_recycle_tasks, return_exceptions=True),  # type: ignore[arg-type]
                     timeout=30.0,
                 )
             except asyncio.TimeoutError:
