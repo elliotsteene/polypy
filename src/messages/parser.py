@@ -1,7 +1,9 @@
 from typing import Any, Generator, assert_never
 
 import msgspec
+import structlog
 
+from src.core.logging import Logger
 from src.exceptions import UnknownMarket, UnknownMessageType
 from src.messages.protocol import (
     EVENT_TYPE_MAP,
@@ -13,6 +15,8 @@ from src.messages.protocol import (
     PriceLevel,
     RawMessage,
 )
+
+logger: Logger = structlog.getLogger(__name__)
 
 # Pre-comiled decoder for raw json
 _raw_decoder = msgspec.json.Decoder()
@@ -29,32 +33,34 @@ class MessageParser:
             for raw_message in raw_messages:
                 match raw_message.event_type:
                     case EventType.BOOK:
-                        parsed_messages = self._parse_book_snapshot(raw_message)
+                        yield from self._parse_book_snapshot(raw_message)
                     case EventType.PRICE_CHANGE:
-                        parsed_messages = self._parse_price_change(raw_message)
+                        yield from self._parse_price_change(raw_message)
                     case EventType.LAST_TRADE_PRICE:
-                        parsed_messages = self._parse_last_trade_price(raw_message)
+                        yield from self._parse_last_trade_price(raw_message)
                     case EventType.TICK_SIZE_CHANGE:
-                        parsed_messages = self._parse_tick_size_change(raw_message)
+                        yield from self._parse_tick_size_change(raw_message)
 
                     # It should never reach these options
                     case EventType.UNKNOWN:
-                        pass
+                        raise NotImplementedError(
+                            "Event type unknown, message parse not implemented"
+                        )
                     case _:
                         assert_never(raw_message.event_type)
 
         except AssertionError as e:
-            print(f"Unexpected event type received, unreachable code reached : {e}")
+            logger.exception(
+                f"Unexpected event type received, unreachable code reached : {e}"
+            )
             raise
 
         except NotImplementedError:
-            pass
-
-        except Exception as e:
-            print(e)
             raise
 
-        return parsed_messages
+        except Exception as e:
+            logger.exception(f"Error while parsing messages {e}")
+            raise
 
     @staticmethod
     def _process_bytes(data: bytes) -> Generator[RawMessage]:
@@ -86,7 +92,7 @@ class MessageParser:
                 )
 
         except Exception as e:
-            print(e)
+            logger.exception(f"Error while processing bytes: {e}")
             raise
 
     @staticmethod

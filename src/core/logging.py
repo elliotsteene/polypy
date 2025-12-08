@@ -15,7 +15,7 @@ class Logging(Generic[RendererType]):
     timestamper = structlog.processors.TimeStamper(fmt="iso")
 
     timestamper = structlog.processors.TimeStamper(fmt="iso")
-    shared_processors = [
+    shared_processors: list = [
         structlog.contextvars.merge_contextvars,
         structlog.stdlib.add_log_level,
         structlog.stdlib.add_logger_name,

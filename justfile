@@ -10,6 +10,7 @@ hl-status:
 check:
     @ uv run ruff check --force-exclude --fix
     @ uv run ruff format --force-exclude
+    @ uv run pyrefly check
 
 test:
     @ uv run pytest

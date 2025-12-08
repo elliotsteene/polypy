@@ -178,7 +178,7 @@ class TestParserEdgeCases:
         parser = MessageParser()
         data = b'{"event_type":"tick_size_change","market":"0xabc","timestamp":"1000"}'
 
-        # Act & Assert - NotImplementedError is caught but leads to UnboundLocalError
-        # This is a bug in the parser but we test the actual behavior
-        with pytest.raises(UnboundLocalError):
+        # Act & Assert - tick_size_change is not implemented yet
+        # Should raise NotImplementedError directly
+        with pytest.raises(NotImplementedError):
             list(parser.parse_messages(data))
