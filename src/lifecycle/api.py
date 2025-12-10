@@ -1,6 +1,7 @@
 """Gamma API client for market discovery."""
 
 import asyncio
+import json
 from datetime import datetime
 from typing import Any
 
@@ -13,9 +14,10 @@ from src.lifecycle.types import GAMMA_API_BASE_URL, MarketInfo
 logger: Logger = structlog.get_logger()
 
 # API configuration
-DEFAULT_PAGE_SIZE = 100
+DEFAULT_PAGE_SIZE = 500
 MAX_RETRIES = 3
 RETRY_DELAY = 2.0
+MARKETS_URL = f"{GAMMA_API_BASE_URL}/markets"
 
 
 async def fetch_active_markets(
@@ -34,18 +36,23 @@ async def fetch_active_markets(
         params = {
             "limit": page_size,
             "offset": offset,
-            "active": "true",
             "closed": "false",
+            "order": "id",
+            "ascending": "false",
         }
 
-        markets = await _fetch_page(session, params)
+        markets, market_page_count = await _fetch_page(session, params)
 
         if not markets:
+            logger.warning("No more markets")
             break
 
         all_markets.extend(markets)
 
-        if len(markets) < page_size:
+        if market_page_count < page_size:
+            logger.warning(
+                f"markets less than page_size: {len(markets)} and {len(all_markets)} and {page_size}"
+            )
             break
 
         offset += page_size
@@ -57,16 +64,17 @@ async def fetch_active_markets(
 async def _fetch_page(
     session: aiohttp.ClientSession,
     params: dict[str, Any],
-) -> list[MarketInfo]:
+) -> tuple[list[MarketInfo], int]:
     """Fetch a single page of markets with retry logic."""
-    url = f"{GAMMA_API_BASE_URL}/markets"
-
     for attempt in range(MAX_RETRIES):
         try:
-            async with session.get(url, params=params) as response:
+            async with session.get(MARKETS_URL, params=params) as response:
                 response.raise_for_status()
                 data = await response.json()
-                return [_parse_market(m) for m in data if _is_valid_market(m)]
+                return (
+                    [_parse_market(m) for m in data if _is_valid_market(m)],
+                    len(data),
+                )
 
         except aiohttp.ClientError as e:
             logger.warning(
@@ -78,7 +86,7 @@ async def _fetch_page(
                 logger.error(f"Gamma API request failed after {MAX_RETRIES} attempts")
                 raise
 
-    return []  # Should not reach here
+    return ([], 0)  # Should not reach here
 
 
 def _is_valid_market(data: dict[str, Any]) -> bool:
@@ -89,8 +97,6 @@ def _is_valid_market(data: dict[str, Any]) -> bool:
 
 def _parse_market(data: dict[str, Any]) -> MarketInfo:
     """Parse raw API response into MarketInfo."""
-    import json
-
     # Parse ISO date to unix milliseconds
     end_date_iso = data.get("endDate", "")
     end_timestamp = 0
@@ -120,6 +126,7 @@ def _parse_market(data: dict[str, Any]) -> MarketInfo:
             else clob_token_ids_raw
         )
     except json.JSONDecodeError:
+        logger.warning(f"Unable to parse clobTokenIds: {data['conditionId']}")
         clob_token_ids = []
 
     # Create tokens list with outcome mapping

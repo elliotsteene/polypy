@@ -53,6 +53,8 @@ class TestLifecycleIntegration:
             on_new_market=capture_event,
             on_market_expired=capture_event,
         )
+        # Need to activate the sleep within task so that it yields back to the test
+        controller._known_conditions.add("condition-id")
 
         # Create mock market that expires soon
         now_ms = int(time.time() * 1000)
@@ -101,6 +103,8 @@ class TestLifecycleIntegration:
         """Test that controller continues running after API errors."""
         # Arrange
         controller = LifecycleController(registry)
+        # Need to activate the sleep within task so that it yields back to the test
+        controller._known_conditions.add("condition-id")
 
         # Mock API to fail
         import aiohttp
