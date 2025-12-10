@@ -9,6 +9,7 @@ from src.messages.protocol import (
     PriceChange,
     PriceLevel,
     Side,
+    TickSizeChange,
 )
 
 
@@ -100,6 +101,21 @@ from src.messages.protocol import (
                 )
             ],
         ),
+        (
+            b'{"event_type":"tick_size_change","market":"0xabc","timestamp":"1000", "old_tick_size":"0.001", "new_tick_size":"0.001","asset_id":"114122071509644379678018727908709560226618148003371446110114509806601493071694"}',
+            [
+                ParsedMessage(
+                    event_type=EventType.TICK_SIZE_CHANGE,
+                    market="0xabc",
+                    asset_id="114122071509644379678018727908709560226618148003371446110114509806601493071694",
+                    raw_timestamp=1000,
+                    tick_size_change=TickSizeChange(
+                        old_tick_size=0.001,
+                        new_tick_size=0.001,
+                    ),
+                )
+            ],
+        ),
     ],
 )
 def test_parse_messages(bytes: bytes, expected: list[ParsedMessage]) -> None:
@@ -171,14 +187,4 @@ class TestParserEdgeCases:
 
         # Act & Assert
         with pytest.raises(Exception):
-            list(parser.parse_messages(data))
-
-    def test_parse_tick_size_change(self) -> None:
-        # Arrange
-        parser = MessageParser()
-        data = b'{"event_type":"tick_size_change","market":"0xabc","timestamp":"1000"}'
-
-        # Act & Assert - tick_size_change is not implemented yet
-        # Should raise NotImplementedError directly
-        with pytest.raises(NotImplementedError):
             list(parser.parse_messages(data))

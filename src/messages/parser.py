@@ -14,6 +14,7 @@ from src.messages.protocol import (
     PriceChange,
     PriceLevel,
     RawMessage,
+    TickSizeChange,
 )
 
 logger: Logger = structlog.getLogger(__name__)
@@ -168,4 +169,15 @@ class MessageParser:
 
     @staticmethod
     def _parse_tick_size_change(raw_message: RawMessage) -> Generator[ParsedMessage]:
-        raise NotImplementedError
+        tick_size_change = TickSizeChange.from_strings(
+            old_tick_size=raw_message.raw_data["old_tick_size"],
+            new_tick_size=raw_message.raw_data["new_tick_size"],
+        )
+
+        yield ParsedMessage(
+            event_type=raw_message.event_type,
+            market=raw_message.market,
+            asset_id=raw_message.raw_data["asset_id"],
+            tick_size_change=tick_size_change,
+            raw_timestamp=raw_message.timestamp,
+        )

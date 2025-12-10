@@ -160,6 +160,24 @@ class LastTradePrice(msgspec.Struct, frozen=True):
         )
 
 
+class TickSizeChange(msgspec.Struct, frozen=True):
+    """Tick size change event"""
+
+    old_tick_size: float
+    new_tick_size: float
+
+    @classmethod
+    def from_strings(
+        cls,
+        old_tick_size: str,
+        new_tick_size: str,
+    ) -> TickSizeChange:
+        return cls(
+            old_tick_size=float(old_tick_size),
+            new_tick_size=float(new_tick_size),
+        )
+
+
 class ParsedMessage(msgspec.Struct):
     """
     Unified parsed message container
@@ -175,6 +193,7 @@ class ParsedMessage(msgspec.Struct):
     book: BookSnapshot | None = None
     price_change: PriceChange | None = None
     last_trade: LastTradePrice | None = None
+    tick_size_change: TickSizeChange | None = None
 
 
 @dataclass(slots=True)
