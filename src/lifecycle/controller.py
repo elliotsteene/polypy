@@ -94,7 +94,7 @@ class LifecycleController:
         self._session = aiohttp.ClientSession()
 
         # Initial discovery
-        await self._discover_markets()
+        # await self._discover_markets()
 
         # Start background tasks
         self._discovery_task = asyncio.create_task(
@@ -184,8 +184,10 @@ class LifecycleController:
     async def _discovery_loop(self) -> None:
         """Background task: Periodic market discovery."""
         while self._running:
+            logger.info("Inside discovery loop")
             try:
-                await asyncio.sleep(DISCOVERY_INTERVAL)
+                if len(self._known_conditions) > 0:
+                    await asyncio.sleep(DISCOVERY_INTERVAL)
 
                 if not self._running:
                     break

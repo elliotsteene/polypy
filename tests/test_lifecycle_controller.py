@@ -320,6 +320,9 @@ class TestDiscoveryLoop:
                 controller._running = True
                 controller._session = MagicMock()
 
+                # Need to activate the sleep within task so that it yields back to the test
+                controller._known_conditions.add("condition-id")
+
                 # Run discovery loop for a short time
                 task = asyncio.create_task(controller._discovery_loop())
                 await asyncio.sleep(0.25)

@@ -10,7 +10,7 @@ class Environment(StrEnum):
 
 class Settings(BaseSettings):
     ENV: Environment = Environment.development
-    LOG_LEVEL: str = "DEBUG"
+    LOG_LEVEL: str = "INFO"
 
     @property
     def is_production(self) -> bool:

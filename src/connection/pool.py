@@ -155,7 +155,9 @@ class ConnectionPool:
         """Periodically process pending markets."""
         while self._running:
             try:
-                await asyncio.sleep(BATCH_SUBSCRIPTION_INTERVAL)
+                pending_count = self._registry.get_pending_count()
+                if pending_count < MIN_PENDING_FOR_NEW_CONNECTION:
+                    await asyncio.sleep(BATCH_SUBSCRIPTION_INTERVAL)
 
                 if not self._running:
                     break
