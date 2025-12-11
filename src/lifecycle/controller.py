@@ -184,7 +184,6 @@ class LifecycleController:
     async def _discovery_loop(self) -> None:
         """Background task: Periodic market discovery."""
         while self._running:
-            logger.info("Inside discovery loop")
             try:
                 if len(self._known_conditions) > 0:
                     await asyncio.sleep(DISCOVERY_INTERVAL)
