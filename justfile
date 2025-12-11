@@ -1,3 +1,5 @@
+set positional-arguments
+
 # run-app:
 #     @ PYTHONASYNCIODEBUG=1 && uv run src/main.py
 
@@ -34,11 +36,21 @@ ship:
 
 new-stack PHASE_NUM BRANCH_NAME COMMIT_MSG PR_TITLE PR_BODY:
     #!/usr/bin/env bash
-    . ./.claude/scripts/run_silent.sh && run_silent "Stack created successfully! Branch: phase-{{PHASE_NUM}}-{{BRANCH_NAME}}" "./.claude/skills/stacked-pr/scripts/new-stack.sh {{PHASE_NUM}} {{BRANCH_NAME}} {{quote(COMMIT_MSG)}} {{quote(PR_TITLE)}} {{quote(PR_BODY)}}"
+    num="$1"
+    name="$2"
+    msg="$3"
+    title="$4"
+    body="$5"
+    source .claude/scripts/run_silent.sh && run_silent "Stack created successfully! Branch: phase-$num-$name" "./.claude/skills/stacked-pr/scripts/new-stack.sh $num $name $msg $title $body"
 
 append-stack PHASE_NUM BRANCH_NAME COMMIT_MSG PR_TITLE PR_BODY:
     #!/usr/bin/env bash
-    . ./.claude/scripts/run_silent.sh && run_silent "Stack created successfully! Branch: phase-{{PHASE_NUM}}-{{BRANCH_NAME}}" "./.claude/skills/stacked-pr/scripts/append-stack.sh {{PHASE_NUM}} {{BRANCH_NAME}} {{quote(COMMIT_MSG)}} {{quote(PR_TITLE)}} {{quote(PR_BODY)}}"
+    num="$1"
+    name="$2"
+    msg="$3"
+    title="$4"
+    body="$5"
+    source .claude/scripts/run_silent.sh && run_silent "Stack created successfully! Branch: phase-$num-$name" "./.claude/skills/stacked-pr/scripts/append-stack.sh $num $name $msg $title $body"
 
 # Docker commands
 # docker-build:
