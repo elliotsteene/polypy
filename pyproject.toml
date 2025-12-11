@@ -8,6 +8,7 @@ dependencies = [
     "aiohttp>=3.13.2",
     "codetiming>=1.4.0",
     "msgspec>=0.20.0",
+    "prometheus-client>=0.23.1",
     "pydantic-settings>=2.12.0",
     "sortedcontainers>=2.4.0",
     "structlog>=25.5.0",

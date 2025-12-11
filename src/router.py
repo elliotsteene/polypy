@@ -31,7 +31,7 @@ else:
 logger: Logger = structlog.getLogger(__name__)
 
 # Configuration constants
-ASYNC_QUEUE_SIZE: Final[int] = 10_000  # Max pending in async queue
+ASYNC_QUEUE_SIZE: Final[int] = 20_000  # Max pending in async queue
 WORKER_QUEUE_SIZE: Final[int] = 5_000  # Max pending per worker
 BATCH_SIZE: Final[int] = 100  # Messages to batch before routing
 BATCH_TIMEOUT: Final[float] = 0.01  # 10ms max wait for batch
