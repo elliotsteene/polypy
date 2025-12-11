@@ -36,6 +36,7 @@ ship:
 
 new-stack PHASE_NUM BRANCH_NAME COMMIT_MSG PR_TITLE PR_BODY:
     #!/usr/bin/env bash
+    set -euxo pipefail
     num="$1"
     name="$2"
     msg="$3"
@@ -45,12 +46,13 @@ new-stack PHASE_NUM BRANCH_NAME COMMIT_MSG PR_TITLE PR_BODY:
 
 append-stack PHASE_NUM BRANCH_NAME COMMIT_MSG PR_TITLE PR_BODY:
     #!/usr/bin/env bash
+    set -euxo pipefail
     num="$1"
     name="$2"
     msg="$3"
     title="$4"
     body="$5"
-    source .claude/scripts/run_silent.sh && run_silent "Stack created successfully! Branch: phase-$num-$name" "./.claude/skills/stacked-pr/scripts/append-stack.sh $num $name $msg $title $body"
+    source .claude/scripts/run_silent.sh && run_silent "Stack created successfully! Branch: phase-$num-$name" "./.claude/skills/stacked-pr/scripts/append-stack.sh '$num' '$name' '$msg' '$title' '$body'"
 
 # Docker commands
 # docker-build:
