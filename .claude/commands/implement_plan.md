@@ -52,6 +52,21 @@ If you encounter a mismatch:
   How should I proceed?
   ```
 
+## Context Efficiency (CRITICAL)
+
+**Always prioritize context efficiency** when running verification commands.
+
+Context tokens are precious - successful test runs should show a ✓, not 200+ lines of output. Only failures should show full details.
+
+**Quick rules:**
+- ✅ Use `just check-test` for verification (shows ✓ on success)
+- ✅ Use `just tests` or `just test <path>` for testing
+- ✅ Use `just check` for linting
+- ❌ Never use raw `uv run pytest` or `uv run ruff` commands
+- ❌ Don't let verbose output consume context tokens
+
+**Why:** Verbose output wastes 2-3% of context per test run. Over multiple iterations, this pushes agents into "dumb zone" where important context gets dropped. The real cost is human time when agents lose context.
+
 ## Verification Approach
 
 After implementing a phase:

@@ -426,15 +426,21 @@ This plan is designed for implementation using stacked PRs, where each phase bec
    - Edge cases that are hard to automate
    - User acceptance criteria
 
+**Context Efficiency in Success Criteria:**
+- ✅ Always use `just` commands (they have backpressure built-in)
+- ✅ Prefer `just check-test` over individual commands
+- ✅ Use `just tests` instead of `uv run pytest`
+- ❌ Avoid raw commands that produce verbose output
+
 **Format example:**
 ```markdown
 ### Success Criteria:
 
 #### Automated Verification:
-- [ ] Database migration runs successfully: `make migrate`
-- [ ] All unit tests pass: `go test ./...`
-- [ ] No linting errors: `golangci-lint run`
-- [ ] API endpoint returns 200: `curl localhost:8080/api/new-endpoint`
+- [ ] All tests pass: `just tests`
+- [ ] Linting and formatting pass: `just check`
+- [ ] Full verification passes: `just check-test`
+- [ ] Specific component works: `just test tests/test_component.py`
 
 #### Manual Verification:
 - [ ] New feature appears correctly in the UI

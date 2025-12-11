@@ -22,9 +22,8 @@ test TEST:
 test-cov:
     @ uv run pytest --cov=src --cov-report=term-missing --cov-fail-under=90
 
-check-test:
-    @ just check
-    @ just tests
+check-test: check tests
+    @echo "✓ Check Test complete"
 
 sync-stack-changes:
     @ git town sync --stack --detached

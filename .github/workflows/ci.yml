@@ -30,4 +30,4 @@ jobs:
         run: uv sync
 
       - name: Run checks and tests
-        run: just check-test
+        run: VERBOSE=1 just check-test
