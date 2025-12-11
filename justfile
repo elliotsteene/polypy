@@ -34,7 +34,15 @@ ship:
     @ git town sync --all
 
 new-stack PHASE_NUM BRANCH_NAME COMMIT_MSG PR_TITLE PR_BODY:
-    @. ./.claude/scripts/run_silent.sh && run_silent "Stack created successfully! Branch: {{BRANCH_NAME}}" "./.claude/skills/stacked-pr/scripts/new-stack.sh \
+    @. ./.claude/scripts/run_silent.sh && run_silent "Stack created successfully! Branch: phase-{{PHASE_NUM}}-{{BRANCH_NAME}}" "./.claude/skills/stacked-pr/scripts/new-stack.sh \
+      {{PHASE_NUM}} \
+      {{BRANCH_NAME}} \
+      {{COMMIT_MSG}} \
+      {{PR_TITLE}} \
+      {{PR_BODY}}"
+
+append-stack PHASE_NUM BRANCH_NAME COMMIT_MSG PR_TITLE PR_BODY:
+    @. ./.claude/scripts/run_silent.sh && run_silent "Stack created successfully! Branch: phase-{{PHASE_NUM}}-{{BRANCH_NAME}}" "./.claude/skills/stacked-pr/scripts/append-stack.sh \
       {{PHASE_NUM}} \
       {{BRANCH_NAME}} \
       {{COMMIT_MSG}} \
