@@ -4,31 +4,31 @@ global:
   scrape_interval: 15s
   evaluation_interval: 15s
   external_labels:
-    monitor: 'polypy-dev'
+    monitor: "polypy-dev"
 
 scrape_configs:
   # Prometheus self-monitoring
-  - job_name: 'prometheus'
+  - job_name: "prometheus"
     static_configs:
-      - targets: ['localhost:9090']
+      - targets: ["prometheus.polypy.orb.local:9090"]
 
   # PolyPy application metrics
-  - job_name: 'polypy'
-    metrics_path: '/metrics'
+  - job_name: "polypy"
+    metrics_path: "/metrics"
     static_configs:
-      - targets: ['polypy:8080']
+      - targets: ["polypy.polypy.orb.local:8080"]
         labels:
-          service: 'polypy'
-          environment: 'development'
+          service: "polypy"
+          environment: "development"
     scrape_interval: 15s
     scrape_timeout: 10s
 
   # PolyPy health check (optional, for monitoring)
-  - job_name: 'polypy-health'
-    metrics_path: '/health'
+  - job_name: "polypy-health"
+    metrics_path: "/health"
     metric_relabel_configs:
       # Drop this since /health returns JSON, not metrics
       - action: drop
-        regex: '.*'
+        regex: ".*"
     static_configs:
-      - targets: ['polypy:8080']
+      - targets: ["polypy.polypy.orb.local:8080"]

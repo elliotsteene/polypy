@@ -40,12 +40,14 @@ class MetricsCollector:
         # Get current stats
         stats = self._app.get_stats()
 
-        # Create and populate basic metrics
+        # Create and populate metrics
         self._collect_application_metrics(registry, stats)
         self._collect_registry_metrics(registry, stats)
         self._collect_pool_metrics(registry, stats)
+        self._collect_connection_metrics(registry, stats)
         self._collect_router_metrics(registry, stats)
         self._collect_worker_metrics(registry, stats)
+        self._collect_worker_detail_metrics(registry, stats)
         self._collect_lifecycle_metrics(registry, stats)
         self._collect_recycler_metrics(registry, stats)
 
@@ -108,6 +110,124 @@ class MetricsCollector:
             registry=registry,
         )
         capacity.set(pool_stats.get("total_capacity", 0))
+
+    def _collect_connection_metrics(
+        self, registry: CollectorRegistry, stats: dict[str, Any]
+    ) -> None:
+        """Collect per-connection metrics with connection_id labels."""
+        pool_stats = stats.get("pool", {})
+        if not pool_stats:
+            return
+
+        connection_stats = pool_stats.get("stats", [])
+        if not connection_stats:
+            return
+
+        # Define metrics with connection_id label
+        messages_received = Counter(
+            "polypy_connection_messages_received_total",
+            "Total messages received per connection",
+            ["connection_id"],
+            registry=registry,
+        )
+
+        bytes_received = Counter(
+            "polypy_connection_bytes_received_total",
+            "Total bytes received per connection",
+            ["connection_id"],
+            registry=registry,
+        )
+
+        parse_errors = Counter(
+            "polypy_connection_parse_errors_total",
+            "Total parse errors per connection",
+            ["connection_id"],
+            registry=registry,
+        )
+
+        reconnects = Counter(
+            "polypy_connection_reconnects_total",
+            "Total reconnection attempts per connection",
+            ["connection_id"],
+            registry=registry,
+        )
+
+        message_rate = Gauge(
+            "polypy_connection_message_rate",
+            "Message rate (messages/second) per connection",
+            ["connection_id"],
+            registry=registry,
+        )
+
+        healthy = Gauge(
+            "polypy_connection_healthy",
+            "Connection health status (1=healthy, 0=unhealthy)",
+            ["connection_id", "status"],
+            registry=registry,
+        )
+
+        markets_total = Gauge(
+            "polypy_connection_markets_total",
+            "Number of markets per connection by type",
+            ["connection_id", "type"],
+            registry=registry,
+        )
+
+        pollution_ratio = Gauge(
+            "polypy_connection_pollution_ratio",
+            "Ratio of expired to total markets per connection",
+            ["connection_id"],
+            registry=registry,
+        )
+
+        # Populate metrics for each connection
+        for conn in connection_stats:
+            conn_id = conn.get("connection_id", "unknown")
+
+            # Counters
+            messages_received.labels(connection_id=conn_id)._value.set(
+                conn.get("messages_received", 0)
+            )
+            bytes_received.labels(connection_id=conn_id)._value.set(
+                conn.get("bytes_received", 0)
+            )
+            parse_errors.labels(connection_id=conn_id)._value.set(
+                conn.get("parse_errors", 0)
+            )
+            reconnects.labels(connection_id=conn_id)._value.set(
+                conn.get("reconnect_count", 0)
+            )
+
+            # Gauges
+            # Note: message_rate not available in stats dict, would need to add
+            # For now, skip or compute from messages_received / age_seconds
+            age_seconds = conn.get("age_seconds", 0)
+            if age_seconds > 0:
+                messages = conn.get("messages_received", 0)
+                message_rate.labels(connection_id=conn_id).set(messages / age_seconds)
+
+            # Health status
+            status_name = conn.get("status", "UNKNOWN")
+            is_healthy = conn.get("is_healthy", False)
+            healthy.labels(connection_id=conn_id, status=status_name).set(
+                1 if is_healthy else 0
+            )
+
+            # Market counts
+            markets_total.labels(connection_id=conn_id, type="total").set(
+                conn.get("total_markets", 0)
+            )
+            markets_total.labels(connection_id=conn_id, type="subscribed").set(
+                conn.get("subscribed_markets", 0)
+            )
+            markets_total.labels(connection_id=conn_id, type="expired").set(
+                conn.get("expired_markets", 0)
+            )
+
+            # Pollution ratio
+            pollution_ratio.labels(connection_id=conn_id).set(
+                conn.get("pollution_ratio", 0.0)
+            )
 
     def _collect_router_metrics(
         self, registry: CollectorRegistry, stats: dict[str, Any]
@@ -204,6 +324,91 @@ class MetricsCollector:
             registry=registry,
         )
         healthy.set(1 if worker_stats.get("is_healthy") else 0)
+
+    def _collect_worker_detail_metrics(
+        self, registry: CollectorRegistry, stats: dict[str, Any]
+    ) -> None:
+        """Collect detailed per-worker metrics with worker_id labels."""
+        worker_stats = stats.get("workers", {})
+        if not worker_stats:
+            return
+
+        worker_details = worker_stats.get("worker_stats", {})
+        if not worker_details:
+            return
+
+        # Define metrics with worker_id label
+        messages_processed = Counter(
+            "polypy_worker_messages_processed_total",
+            "Total messages processed per worker",
+            ["worker_id"],
+            registry=registry,
+        )
+
+        updates_applied = Counter(
+            "polypy_worker_updates_applied_total",
+            "Total orderbook updates applied per worker",
+            ["worker_id"],
+            registry=registry,
+        )
+
+        snapshots_received = Counter(
+            "polypy_worker_snapshots_received_total",
+            "Total orderbook snapshots received per worker",
+            ["worker_id"],
+            registry=registry,
+        )
+
+        orderbook_count = Gauge(
+            "polypy_worker_orderbook_count",
+            "Number of orderbooks managed per worker",
+            ["worker_id"],
+            registry=registry,
+        )
+
+        memory_bytes = Gauge(
+            "polypy_worker_memory_bytes",
+            "Memory usage in bytes per worker",
+            ["worker_id"],
+            registry=registry,
+        )
+
+        avg_processing_time = Gauge(
+            "polypy_worker_avg_processing_time_seconds",
+            "Average message processing time per worker in seconds",
+            ["worker_id"],
+            registry=registry,
+        )
+
+        # Populate metrics for each worker
+        for worker_id_str, worker_data in worker_details.items():
+            worker_id = str(worker_id_str)
+
+            # Counters
+            messages_processed.labels(worker_id=worker_id)._value.set(
+                worker_data.get("messages_processed", 0)
+            )
+            updates_applied.labels(worker_id=worker_id)._value.set(
+                worker_data.get("updates_applied", 0)
+            )
+            snapshots_received.labels(worker_id=worker_id)._value.set(
+                worker_data.get("snapshots_received", 0)
+            )
+
+            # Gauges
+            orderbook_count.labels(worker_id=worker_id).set(
+                worker_data.get("orderbook_count", 0)
+            )
+
+            # Memory: convert MB back to bytes for consistency
+            memory_mb = worker_data.get("memory_usage_mb", 0.0)
+            memory_bytes.labels(worker_id=worker_id).set(memory_mb * 1024 * 1024)
+
+            # Processing time: convert microseconds to seconds
+            avg_processing_us = worker_data.get("avg_processing_time_us", 0.0)
+            avg_processing_time.labels(worker_id=worker_id).set(
+                avg_processing_us / 1_000_000.0
+            )
 
     def _collect_lifecycle_metrics(
         self, registry: CollectorRegistry, stats: dict[str, Any]

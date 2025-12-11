@@ -18,35 +18,83 @@ def mock_stats() -> dict:
             "expired": 20,
         },
         "pool": {
-            "connection_count": 5,
-            "active_connections": 4,
-            "total_capacity": 2500,
-            "stats": [],
+            "connection_count": 2,
+            "active_connections": 2,
+            "total_capacity": 1000,
+            "stats": [
+                {
+                    "connection_id": "conn-0",
+                    "status": "CONNECTED",
+                    "is_draining": False,
+                    "age_seconds": 100.0,
+                    "messages_received": 1000,
+                    "bytes_received": 50000,
+                    "parse_errors": 2,
+                    "reconnect_count": 1,
+                    "is_healthy": True,
+                    "total_markets": 75,
+                    "subscribed_markets": 60,
+                    "expired_markets": 15,
+                    "pollution_ratio": 0.2,
+                },
+                {
+                    "connection_id": "conn-1",
+                    "status": "CONNECTED",
+                    "is_draining": False,
+                    "age_seconds": 200.0,
+                    "messages_received": 2000,
+                    "bytes_received": 100000,
+                    "parse_errors": 0,
+                    "reconnect_count": 0,
+                    "is_healthy": True,
+                    "total_markets": 75,
+                    "subscribed_markets": 60,
+                    "expired_markets": 15,
+                    "pollution_ratio": 0.2,
+                },
+            ],
         },
         "router": {
-            "messages_routed": 10000,
-            "messages_dropped": 50,
-            "batches_sent": 500,
-            "queue_full_events": 5,
-            "routing_errors": 2,
+            "messages_routed": 3000,
+            "messages_dropped": 10,
+            "batches_sent": 150,
+            "queue_full_events": 2,
+            "routing_errors": 1,
             "avg_latency_ms": 1.5,
-            "queue_depths": {"async_queue": 10, "worker_0": 5},
+            "queue_depths": {"async_queue": 10, "worker_0": 5, "worker_1": 3},
         },
         "workers": {
             "alive_count": 2,
             "is_healthy": True,
-            "worker_stats": {},
+            "worker_stats": {
+                "0": {
+                    "messages_processed": 1500,
+                    "updates_applied": 4500,
+                    "snapshots_received": 75,
+                    "avg_processing_time_us": 250.5,
+                    "orderbook_count": 75,
+                    "memory_usage_mb": 128.5,
+                },
+                "1": {
+                    "messages_processed": 1500,
+                    "updates_applied": 4500,
+                    "snapshots_received": 75,
+                    "avg_processing_time_us": 230.2,
+                    "orderbook_count": 75,
+                    "memory_usage_mb": 125.3,
+                },
+            },
         },
         "lifecycle": {
             "is_running": True,
-            "known_market_count": 100,
+            "known_market_count": 150,
         },
         "recycler": {
-            "recycles_initiated": 10,
-            "recycles_completed": 8,
-            "recycles_failed": 2,
+            "recycles_initiated": 5,
+            "recycles_completed": 4,
+            "recycles_failed": 1,
             "success_rate": 0.8,
-            "markets_migrated": 500,
+            "markets_migrated": 300,
             "avg_downtime_ms": 150.0,
             "active_recycles": [],
         },
@@ -139,9 +187,9 @@ class TestMetricsCollector:
         metrics_text = result.decode("utf-8")
 
         # Check for counters
-        assert "polypy_router_messages_routed_total 10000.0" in metrics_text
-        assert "polypy_router_messages_dropped_total 50.0" in metrics_text
-        assert "polypy_router_batches_sent_total 500.0" in metrics_text
+        assert "polypy_router_messages_routed_total 3000.0" in metrics_text
+        assert "polypy_router_messages_dropped_total 10.0" in metrics_text
+        assert "polypy_router_batches_sent_total 150.0" in metrics_text
 
     def test_recycler_metrics_with_labels(self, mock_stats):
         """Test recycler metrics with result labels."""
@@ -155,8 +203,8 @@ class TestMetricsCollector:
         metrics_text = result.decode("utf-8")
 
         # Check for labeled counters
-        assert 'polypy_recycler_recycles_total{result="completed"} 8.0' in metrics_text
-        assert 'polypy_recycler_recycles_total{result="failed"} 2.0' in metrics_text
+        assert 'polypy_recycler_recycles_total{result="completed"} 4.0' in metrics_text
+        assert 'polypy_recycler_recycles_total{result="failed"} 1.0' in metrics_text
         assert "polypy_recycler_success_rate 0.8" in metrics_text
 
     def test_empty_stats_handling(self):
@@ -185,6 +233,105 @@ class TestMetricsCollector:
         # Should at least have application_running metric
         metric_names = {family.name for family in families}
         assert "polypy_application_running" in metric_names
+
+    def test_per_connection_metrics(self, mock_stats):
+        """Test per-connection metrics with connection_id labels."""
+
+        class MockApp:
+            def get_stats(self):
+                return mock_stats
+
+        collector = MetricsCollector(MockApp())
+        result = collector.collect_metrics()
+        metrics_text = result.decode("utf-8")
+
+        # Check for conn-0 metrics
+        assert (
+            'polypy_connection_messages_received_total{connection_id="conn-0"} 1000.0'
+            in metrics_text
+        )
+        assert (
+            'polypy_connection_bytes_received_total{connection_id="conn-0"} 50000.0'
+            in metrics_text
+        )
+        assert (
+            'polypy_connection_parse_errors_total{connection_id="conn-0"} 2.0'
+            in metrics_text
+        )
+
+        # Check for conn-1 metrics
+        assert (
+            'polypy_connection_messages_received_total{connection_id="conn-1"} 2000.0'
+            in metrics_text
+        )
+
+    def test_per_worker_metrics(self, mock_stats):
+        """Test per-worker metrics with worker_id labels."""
+
+        class MockApp:
+            def get_stats(self):
+                return mock_stats
+
+        collector = MetricsCollector(MockApp())
+        result = collector.collect_metrics()
+        metrics_text = result.decode("utf-8")
+
+        # Check for worker 0 metrics
+        assert (
+            'polypy_worker_messages_processed_total{worker_id="0"} 1500.0'
+            in metrics_text
+        )
+        assert (
+            'polypy_worker_updates_applied_total{worker_id="0"} 4500.0' in metrics_text
+        )
+        assert 'polypy_worker_orderbook_count{worker_id="0"} 75.0' in metrics_text
+
+        # Check for worker 1 metrics
+        assert (
+            'polypy_worker_messages_processed_total{worker_id="1"} 1500.0'
+            in metrics_text
+        )
+
+    def test_connection_pollution_ratio(self, mock_stats):
+        """Test connection pollution ratio metric."""
+
+        class MockApp:
+            def get_stats(self):
+                return mock_stats
+
+        collector = MetricsCollector(MockApp())
+        result = collector.collect_metrics()
+        metrics_text = result.decode("utf-8")
+
+        # Check pollution ratio for both connections
+        assert (
+            'polypy_connection_pollution_ratio{connection_id="conn-0"} 0.2'
+            in metrics_text
+        )
+        assert (
+            'polypy_connection_pollution_ratio{connection_id="conn-1"} 0.2'
+            in metrics_text
+        )
+
+    def test_worker_memory_bytes_conversion(self, mock_stats):
+        """Test that worker memory is correctly converted from MB to bytes."""
+
+        class MockApp:
+            def get_stats(self):
+                return mock_stats
+
+        collector = MetricsCollector(MockApp())
+        result = collector.collect_metrics()
+        metrics_text = result.decode("utf-8")
+
+        # 128.5 MB = 134742016 bytes
+        expected_bytes = 128.5 * 1024 * 1024
+        # Check approximately (floating point)
+        assert (
+            f'polypy_worker_memory_bytes{{worker_id="0"}} {expected_bytes}'
+            in metrics_text
+            or 'polypy_worker_memory_bytes{worker_id="0"} 1.34' in metrics_text
+        )  # Scientific notation
 
 
 @pytest.mark.asyncio
