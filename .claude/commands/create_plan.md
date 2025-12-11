@@ -415,7 +415,7 @@ This plan is designed for implementation using stacked PRs, where each phase bec
 **Always separate success criteria into two categories:**
 
 1. **Automated Verification** (can be run by execution agents):
-   - Commands that can be run: `just test`, `just check`, etc.
+   - Commands that can be run: `just tests`, `just check`, etc.
    - Specific files that should exist
    - Code compilation/type checking
    - Automated test suites
