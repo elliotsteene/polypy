@@ -26,6 +26,7 @@ run_silent() {
     fi
 
     local tmp_file=$(mktemp)
+
     if eval "$command" > "$tmp_file" 2>&1; then
         printf "  ${GREEN}✓${NC} %s\n" "$description"
         rm -f "$tmp_file"
