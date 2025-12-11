@@ -1,8 +1,32 @@
-"""Prometheus metrics collector for PolyPy application stats."""
+"""Prometheus metrics collector for PolyPy application stats.
+
+Note on Summaries:
+------------------
+The Summary metrics (processing_seconds, routing_latency_seconds, downtime_seconds)
+are populated from aggregate statistics (average * count) rather than individual
+observations. This means:
+
+1. Quantiles are not available (only _sum and _count)
+2. The distribution is reconstructed from aggregates
+3. For true percentile queries, use rate(_sum) / rate(_count) in PromQL
+
+Example PromQL queries:
+- Average processing time: rate(polypy_worker_processing_seconds_sum[1m]) / rate(polypy_worker_processing_seconds_count[1m])
+- Total throughput: rate(polypy_worker_processing_seconds_count[1m])
+
+To get true quantiles in the future, would need to track individual observations
+in the stats collection layer, not just aggregate averages.
+"""
 
 from typing import TYPE_CHECKING, Any
 
-from prometheus_client import CollectorRegistry, Counter, Gauge, generate_latest
+from prometheus_client import (
+    CollectorRegistry,
+    Counter,
+    Gauge,
+    Summary,
+    generate_latest,
+)
 
 if TYPE_CHECKING:
     from src.app import PolyPy
@@ -286,20 +310,23 @@ class MetricsCollector:
                 if depth >= 0:  # Skip -1 values (NotImplementedError on macOS)
                     queue_depth.labels(queue_name=queue_name).set(depth)
 
-        # Routing latency summary
-        avg_latency_ms = router_stats.get("avg_latency_ms", 0)
-        if avg_latency_ms > 0:
-            # Note: Summary requires observations, but we only have aggregate data
-            # We'll use Counter for total and compute rate in PromQL
-            latency_total = Counter(
-                "polypy_router_routing_latency_seconds_total",
-                "Total routing latency in seconds",
-                registry=registry,
-            )
-            # Convert avg_latency_ms to total seconds
-            messages_routed_count = router_stats.get("messages_routed", 0)
-            total_latency_seconds = (avg_latency_ms * messages_routed_count) / 1000.0
-            latency_total._value.set(total_latency_seconds)
+        # Routing latency summary (replaces latency counter)
+        routing_latency_summary = Summary(
+            "polypy_router_routing_latency_seconds",
+            "Message routing latency distribution in seconds",
+            registry=registry,
+        )
+
+        # Populate summary from aggregate stats
+        messages_routed_count = router_stats.get("messages_routed", 0)
+        avg_latency_ms = router_stats.get("avg_latency_ms", 0.0)
+
+        if messages_routed_count > 0 and avg_latency_ms > 0:
+            avg_latency_seconds = avg_latency_ms / 1000.0
+            total_latency_seconds = avg_latency_seconds * messages_routed_count
+
+            routing_latency_summary._sum.set(total_latency_seconds)
+            routing_latency_summary._count.set(messages_routed_count)
 
     def _collect_worker_metrics(
         self, registry: CollectorRegistry, stats: dict[str, Any]
@@ -373,9 +400,10 @@ class MetricsCollector:
             registry=registry,
         )
 
-        avg_processing_time = Gauge(
-            "polypy_worker_avg_processing_time_seconds",
-            "Average message processing time per worker in seconds",
+        # Processing time summary (replaces avg_processing_time gauge)
+        processing_time_summary = Summary(
+            "polypy_worker_processing_seconds",
+            "Worker message processing time distribution in seconds",
             ["worker_id"],
             registry=registry,
         )
@@ -404,11 +432,24 @@ class MetricsCollector:
             memory_mb = worker_data.get("memory_usage_mb", 0.0)
             memory_bytes.labels(worker_id=worker_id).set(memory_mb * 1024 * 1024)
 
-            # Processing time: convert microseconds to seconds
+            # Processing time summary
+            # Note: Since we only have avg_processing_time_us, we can't create
+            # a true distribution. We'll track it as a counter+count pair.
+            # In a future enhancement, we could store individual observations.
             avg_processing_us = worker_data.get("avg_processing_time_us", 0.0)
-            avg_processing_time.labels(worker_id=worker_id).set(
-                avg_processing_us / 1_000_000.0
-            )
+            messages_processed_count = worker_data.get("messages_processed", 0)
+
+            if messages_processed_count > 0 and avg_processing_us > 0:
+                # Set summary internal metrics directly
+                avg_processing_seconds = avg_processing_us / 1_000_000.0
+                total_processing_seconds = (
+                    avg_processing_seconds * messages_processed_count
+                )
+
+                # Access summary internal metrics
+                summary_metric = processing_time_summary.labels(worker_id=worker_id)
+                summary_metric._sum.set(total_processing_seconds)
+                summary_metric._count.set(messages_processed_count)
 
     def _collect_lifecycle_metrics(
         self, registry: CollectorRegistry, stats: dict[str, Any]
@@ -490,3 +531,21 @@ class MetricsCollector:
                 registry=registry,
             )
             avg_downtime.set(avg_downtime_ms / 1000.0)
+
+        # Downtime summary (complements avg_downtime gauge)
+        downtime_summary = Summary(
+            "polypy_recycler_downtime_seconds",
+            "Recycle operation downtime distribution in seconds",
+            registry=registry,
+        )
+
+        # Populate summary from aggregate stats
+        recycles_completed = recycler_stats.get("recycles_completed", 0)
+        avg_downtime_ms = recycler_stats.get("avg_downtime_ms", 0.0)
+
+        if recycles_completed > 0 and avg_downtime_ms > 0:
+            avg_downtime_seconds = avg_downtime_ms / 1000.0
+            total_downtime_seconds = avg_downtime_seconds * recycles_completed
+
+            downtime_summary._sum.set(total_downtime_seconds)
+            downtime_summary._count.set(recycles_completed)

@@ -333,6 +333,76 @@ class TestMetricsCollector:
             or 'polypy_worker_memory_bytes{worker_id="0"} 1.34' in metrics_text
         )  # Scientific notation
 
+    def test_worker_processing_summary(self, mock_stats):
+        """Test worker processing time summary metric."""
+
+        class MockApp:
+            def get_stats(self):
+                return mock_stats
+
+        collector = MetricsCollector(MockApp())
+        result = collector.collect_metrics()
+        metrics_text = result.decode("utf-8")
+
+        # Check for summary metrics (sum and count)
+        assert 'polypy_worker_processing_seconds_sum{worker_id="0"}' in metrics_text
+        assert (
+            'polypy_worker_processing_seconds_count{worker_id="0"} 1500.0'
+            in metrics_text
+        )
+
+    def test_router_latency_summary(self, mock_stats):
+        """Test router routing latency summary metric."""
+
+        class MockApp:
+            def get_stats(self):
+                return mock_stats
+
+        collector = MetricsCollector(MockApp())
+        result = collector.collect_metrics()
+        metrics_text = result.decode("utf-8")
+
+        # Check for summary metrics
+        assert "polypy_router_routing_latency_seconds_sum" in metrics_text
+        assert "polypy_router_routing_latency_seconds_count 3000.0" in metrics_text
+
+    def test_recycler_downtime_summary(self, mock_stats):
+        """Test recycler downtime summary metric."""
+
+        class MockApp:
+            def get_stats(self):
+                return mock_stats
+
+        collector = MetricsCollector(MockApp())
+        result = collector.collect_metrics()
+        metrics_text = result.decode("utf-8")
+
+        # Check for summary metrics
+        assert "polypy_recycler_downtime_seconds_sum" in metrics_text
+        assert (
+            "polypy_recycler_downtime_seconds_count 4.0" in metrics_text
+        )  # recycles_completed
+
+    def test_summary_calculations_accuracy(self, mock_stats):
+        """Test that summary sum values are calculated correctly."""
+
+        class MockApp:
+            def get_stats(self):
+                return mock_stats
+
+        collector = MetricsCollector(MockApp())
+        result = collector.collect_metrics()
+        metrics_text = result.decode("utf-8")
+
+        # Worker 0: avg_processing_time_us=250.5, messages_processed=1500
+        # Total = 250.5 * 1500 / 1_000_000 = 0.37575 seconds
+        # Check that sum is approximately correct
+        assert 'polypy_worker_processing_seconds_sum{worker_id="0"}' in metrics_text
+
+        # Router: avg_latency_ms=1.5, messages_routed=3000
+        # Total = 1.5 * 3000 / 1000 = 4.5 seconds
+        assert "polypy_router_routing_latency_seconds_sum" in metrics_text
+
 
 @pytest.mark.asyncio
 async def test_metrics_endpoint_integration():
