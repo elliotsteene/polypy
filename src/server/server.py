@@ -5,6 +5,8 @@ from typing import TYPE_CHECKING
 
 import structlog
 from aiohttp import web
+from aiohttp.hdrs import CONTENT_TYPE
+from prometheus_client import CONTENT_TYPE_LATEST
 
 from src.core.logging import Logger
 
@@ -67,6 +69,7 @@ class HTTPServer:
         web_app = web.Application()
         web_app.router.add_get("/health", self._handle_health)
         web_app.router.add_get("/stats", self._handle_stats)
+        web_app.router.add_get("/metrics", self._handle_metrics)
 
         # Start server
         self._runner = web.AppRunner(web_app)
@@ -154,3 +157,28 @@ class HTTPServer:
 
         stats = self._app.get_stats()
         return web.json_response(stats, status=200)
+
+    async def _handle_metrics(self, request: web.Request) -> web.Response:
+        """Handle GET /metrics endpoint.
+
+        Returns:
+            200 OK with Prometheus text exposition format
+        """
+        try:
+            # Import here to avoid circular dependency
+            from src.metrics.prometheus import MetricsCollector
+
+            # Collect and generate metrics
+            collector = MetricsCollector(self._app)
+            metrics_bytes = collector.collect_metrics()
+
+        except Exception as e:
+            logger.exception(f"Error getting metrics: {e}")
+            return web.json_response({"error": e}, status=500)
+
+        rsp = web.Response(
+            body=metrics_bytes,
+            headers={CONTENT_TYPE: CONTENT_TYPE_LATEST},
+        )
+
+        return rsp
