@@ -37,8 +37,8 @@ git branch --show-current
 ```
 
 **Decision Logic:**
-- **If on `main`**: This is Phase 1 → Use `new-stack.sh`
-- **If on `phase-X-*`**: This is Phase N (where N = X + 1) → Use `append-stack.sh`
+- **If on `main`**: This is Phase 1 → Use `just new-stack`
+- **If on `phase-X-*`**: This is Phase N (where N = X + 1) → Use `just append-stack`
 
 ### Step 2: Prepare Arguments
 
@@ -106,7 +106,7 @@ Part of implementation plan: [link to plan if available]
 **For Phase 1 (on `main` branch):**
 
 ```bash
-./.claude/skills/stacked-pr/scripts/new-stack.sh \
+just new-stack \
   "<phase-num>" \
   "<branch-name>" \
   "<commit-msg>" \
@@ -117,7 +117,7 @@ Part of implementation plan: [link to plan if available]
 **For Phase N > 1 (on `phase-X-*` branch):**
 
 ```bash
-./.claude/skills/stacked-pr/scripts/append-stack.sh \
+just append-stack \
   "<phase-num>" \
   "<branch-name>" \
   "<commit-msg>" \
@@ -137,8 +137,8 @@ main
 $ git status
 # Shows: modified files in src/connection/ (uncommitted)
 
-# Execute new-stack.sh
-./.claude/skills/stacked-pr/scripts/new-stack.sh \
+# Execute new-stack
+just new-stack \
   "1" \
   "websocket-foundation" \
   "feat: Add WebSocket connection foundation
@@ -194,8 +194,8 @@ phase-1-websocket-foundation
 $ git status
 # Shows: modified files (uncommitted)
 
-# Execute append-stack.sh
-./.claude/skills/stacked-pr/scripts/append-stack.sh \
+# Execute append-stack
+just append-stack \
   "2" \
   "message-parser" \
   "feat: Add message parsing with msgspec
@@ -265,7 +265,7 @@ The script checks `git status --porcelain`. Ensure:
 
 ### Issue: "Previous phase branch does not exist"
 
-For `append-stack.sh`, ensure:
+For `append-stack`, ensure:
 - You're on the correct previous phase branch before running
 - The branch name follows the `phase-N-*` pattern
 
@@ -307,13 +307,12 @@ This skill integrates with the `/implement_plan` workflow:
 3. Claude pauses for manual verification
 4. User confirms: "Manual verification complete"
 5. **Claude invokes stacked-pr skill**
-6. Skill executes appropriate script (new-stack.sh or append-stack.sh)
+6. Skill executes appropriate script (new-stack or append-stack)
 7. PR created and stack synced
 8. Ready for next phase
 
 ## Notes
 
-- Scripts are located at `.claude/skills/stacked-pr/scripts/`
 - Uses `git-town` for stack management
 - PRs created using GitHub CLI (`gh`)
 - Main branch is `main` (configured in git-town)
