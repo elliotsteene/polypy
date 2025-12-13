@@ -14,7 +14,7 @@ from src.registry.asset_entry import AssetStatus
 from src.registry.asset_registry import AssetRegistry
 from src.router import MessageRouter
 from src.server import HTTPServer
-from src.worker import WorkerManager
+from src.worker.manager import WorkerManager
 
 logger: Logger = structlog.getLogger(__name__)
 

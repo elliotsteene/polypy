@@ -6,7 +6,7 @@ import pytest
 
 from src.messages.parser import MessageParser
 from src.router import MessageRouter
-from src.worker import WorkerManager
+from src.worker.manager import WorkerManager
 
 
 @pytest.fixture
