@@ -56,7 +56,7 @@ run_silent_with_test_count() {
 
     if eval "$command" > "$tmp_file" 2>&1; then
         # Look for pytest summary line like "45 passed in 2.3s"
-        test_count=$(grep -E "[0-9]+ passed" "$tmp_file" | grep -oE "^[0-9]+ passed" | awk '{print $1}' | tail -1)
+        test_count=$(grep -E "[0-9]+ passed" "$tmp_file" | grep -oE "[0-9]+ passed" | awk '{print $1}' | tail -1)
         if [ -n "$test_count" ]; then
             local duration=$(grep -E "[0-9]+ passed" "$tmp_file" | grep -oE "in [0-9.]+s" | tail -1)
             printf "  ${GREEN}✓${NC} %s (%s tests%s)\n" "$description" "$test_count" "${duration:+, $duration}"
