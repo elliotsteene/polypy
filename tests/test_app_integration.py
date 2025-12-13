@@ -13,7 +13,7 @@ import pytest
 from src.app import PolyPy
 
 
-@pytest.fixture
+@pytest.fixture(scope="function")
 async def app():
     """
     Fixture that provides a PolyPy instance and ensures proper cleanup.
@@ -35,7 +35,7 @@ async def app():
 
 @pytest.mark.asyncio
 @pytest.mark.serial
-async def test_full_startup_shutdown_cycle(app):
+async def test_full_startup_shutdown_cycle(app: PolyPy):
     """Test complete startup and shutdown sequence."""
     # Start application
     await app.start()
@@ -70,7 +70,7 @@ async def test_full_startup_shutdown_cycle(app):
 
 @pytest.mark.asyncio
 @pytest.mark.serial
-async def test_signal_handling_via_event(app):
+async def test_signal_handling_via_event(app: PolyPy):
     """Test shutdown via event (simulates signal handling)."""
     # Create run task
     run_task = asyncio.create_task(app.run())
@@ -92,7 +92,7 @@ async def test_signal_handling_via_event(app):
 
 @pytest.mark.asyncio
 @pytest.mark.serial
-async def test_market_discovery(app):
+async def test_market_discovery(app: PolyPy):
     """Test that lifecycle controller discovers markets."""
     await app.start()
 
@@ -118,7 +118,7 @@ async def test_market_discovery(app):
 
 @pytest.mark.asyncio
 @pytest.mark.serial
-async def test_worker_processes_alive(app):
+async def test_worker_processes_alive(app: PolyPy):
     """Test that worker processes are created and alive."""
     await app.start()
     await asyncio.sleep(1.0)
@@ -152,7 +152,7 @@ async def test_worker_processes_alive(app):
 
 @pytest.mark.asyncio
 @pytest.mark.serial
-async def test_pool_subscription_system(app):
+async def test_pool_subscription_system(app: PolyPy):
     """Test that connection pool and subscription system work."""
     await app.start()
     await asyncio.sleep(2.0)
@@ -175,7 +175,7 @@ async def test_pool_subscription_system(app):
 
 @pytest.mark.asyncio
 @pytest.mark.serial
-async def test_router_initialization(app):
+async def test_router_initialization(app: PolyPy):
     """Test that message router is initialized and running."""
     await app.start()
     await asyncio.sleep(1.0)
@@ -202,7 +202,7 @@ async def test_router_initialization(app):
 
 @pytest.mark.asyncio
 @pytest.mark.serial
-async def test_recycler_initialization(app):
+async def test_recycler_initialization(app: PolyPy):
     """Test that connection recycler is initialized."""
     await app.start()
     await asyncio.sleep(1.0)
@@ -229,7 +229,7 @@ async def test_recycler_initialization(app):
 
 @pytest.mark.asyncio
 @pytest.mark.serial
-async def test_multiple_start_stop_cycles(app):
+async def test_multiple_start_stop_cycles(app: PolyPy):
     """Test that application can be started and stopped multiple times."""
     # First cycle
     await app.start()
@@ -250,7 +250,7 @@ async def test_multiple_start_stop_cycles(app):
 
 @pytest.mark.asyncio
 @pytest.mark.serial
-async def test_shutdown_completes_quickly(app):
+async def test_shutdown_completes_quickly(app: PolyPy):
     """Test that shutdown completes within reasonable time."""
     await app.start()
     await asyncio.sleep(1.0)
@@ -266,7 +266,7 @@ async def test_shutdown_completes_quickly(app):
 
 @pytest.mark.asyncio
 @pytest.mark.serial
-async def test_health_check_reflects_state(app):
+async def test_health_check_reflects_state(app: PolyPy):
     """Test that health check accurately reflects application state."""
     # Not running yet
     assert not app.is_healthy()
@@ -288,7 +288,7 @@ async def test_health_check_reflects_state(app):
 
 @pytest.mark.asyncio
 @pytest.mark.serial
-async def test_stats_accuracy_during_operation(app):
+async def test_stats_accuracy_during_operation(app: PolyPy):
     """Test that stats remain accurate during operation."""
     await app.start()
 
@@ -313,7 +313,7 @@ async def test_stats_accuracy_during_operation(app):
 
 @pytest.mark.asyncio
 @pytest.mark.serial
-async def test_component_integration(app):
+async def test_component_integration(app: PolyPy):
     """Test that all components are properly integrated."""
     await app.start()
     await asyncio.sleep(1.5)
@@ -348,7 +348,7 @@ async def test_component_integration(app):
 
 @pytest.mark.asyncio
 @pytest.mark.serial
-async def test_graceful_shutdown_after_error_during_startup(app):
+async def test_graceful_shutdown_after_error_during_startup(app: PolyPy):
     """Test that app can be stopped even if start wasn't called."""
     # Test stop() is safe when start() wasn't called
     await app.stop()
