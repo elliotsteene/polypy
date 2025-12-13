@@ -7,6 +7,7 @@ from unittest.mock import AsyncMock, MagicMock, Mock, patch
 import pytest
 
 from src.app import PolyPy
+from src.worker.stats import WorkerStats
 
 
 class TestPolyPyInit:
@@ -448,9 +449,6 @@ class TestPolyPyStats:
         )
         mock_router.get_queue_depths.return_value = {"async_queue": 0}
         app._router = mock_router
-
-        # Mock workers
-        from src.worker import WorkerStats
 
         mock_workers = MagicMock()
         mock_workers.get_alive_count.return_value = 4

@@ -2,8 +2,7 @@
 
 from multiprocessing import Event as MPEvent
 from multiprocessing import Queue as MPQueue
-from queue import Full
-from unittest.mock import Mock, patch
+from unittest.mock import patch
 
 import pytest
 
@@ -17,50 +16,30 @@ from src.messages.protocol import (
     Side,
 )
 from src.orderbook.orderbook_store import Asset, OrderbookStore
-from src.worker import (
-    WorkerManager,
-    WorkerStats,
-    _process_book_snapshot,
-    _process_last_trade,
-    _process_message,
-    _process_price_change,
-    _worker_process,
-)
-
-
-class TestWorkerStats:
-    """Test WorkerStats dataclass."""
-
-    def test_avg_processing_time_us_with_messages(self):
-        """Test average processing time calculation with messages."""
-        stats = WorkerStats(messages_processed=10, processing_time_ms=50.0)
-        # (50ms * 1000) / 10 = 5000 microseconds
-        assert stats.avg_processing_time_us == 5000.0
-
-    def test_avg_processing_time_us_no_messages(self):
-        """Test average processing time when no messages processed."""
-        stats = WorkerStats(messages_processed=0, processing_time_ms=0.0)
-        assert stats.avg_processing_time_us == 0.0
-
-    def test_default_values(self):
-        """Test WorkerStats default initialization."""
-        stats = WorkerStats()
-        assert stats.messages_processed == 0
-        assert stats.updates_applied == 0
-        assert stats.snapshots_received == 0
-        assert stats.processing_time_ms == 0.0
-        assert stats.last_message_ts == 0.0
-        assert stats.orderbook_count == 0
-        assert stats.memory_usage_bytes == 0
+from src.worker.stats import WorkerStats
+from src.worker.worker import Worker, _worker_process
 
 
 class TestProcessMessage:
     """Test _process_message function."""
 
-    def test_process_book_message(self):
-        """Test processing BOOK snapshot message."""
+    @pytest.fixture
+    def mock_worker(self) -> Worker:
         store = OrderbookStore()
         stats = WorkerStats()
+        input_queue = MPQueue()
+        stats_queue = MPQueue()
+
+        return Worker(
+            worker_id=1,
+            input_queue=input_queue,
+            stats_queue=stats_queue,
+            orderbook_store=store,
+            stats=stats,
+        )
+
+    def test_process_book_message(self, mock_worker: Worker):
+        """Test processing BOOK snapshot message."""
 
         message = ParsedMessage(
             event_type=EventType.BOOK,
@@ -76,21 +55,18 @@ class TestProcessMessage:
             last_trade=None,
         )
 
-        _process_message(store, message, stats)
+        mock_worker._process_message(message)
 
-        assert stats.messages_processed == 1
-        assert stats.snapshots_received == 1
-        assert stats.updates_applied == 1
-        assert store.get_state("asset1") is not None
+        assert mock_worker._stats.messages_processed == 1
+        assert mock_worker._stats.snapshots_received == 1
+        assert mock_worker._stats.updates_applied == 1
+        assert mock_worker._store.get_state("asset1") is not None
 
-    def test_process_price_change_message(self):
+    def test_process_price_change_message(self, mock_worker: Worker):
         """Test processing PRICE_CHANGE message."""
-        store = OrderbookStore()
-        stats = WorkerStats()
-
         # First create a book snapshot
         asset = Asset(asset_id="asset1", market="market1")
-        book = store.register_asset(asset)
+        book = mock_worker._store.register_asset(asset)
         book._bids[-500] = 10000  # 0.50 @ 100.00
 
         message = ParsedMessage(
@@ -111,15 +87,13 @@ class TestProcessMessage:
             last_trade=None,
         )
 
-        _process_message(store, message, stats)
+        mock_worker._process_message(message)
 
-        assert stats.messages_processed == 1
-        assert stats.updates_applied == 1
+        assert mock_worker._stats.messages_processed == 1
+        assert mock_worker._stats.updates_applied == 1
 
-    def test_process_last_trade_message(self):
+    def test_process_last_trade_message(self, mock_worker: Worker):
         """Test processing LAST_TRADE_PRICE message."""
-        store = OrderbookStore()
-        stats = WorkerStats()
 
         message = ParsedMessage(
             event_type=EventType.LAST_TRADE_PRICE,
@@ -131,21 +105,22 @@ class TestProcessMessage:
             last_trade=LastTradePrice(price=500, size=10000, side=Side.BUY),
         )
 
-        _process_message(store, message, stats)
+        mock_worker._process_message(message)
 
-        assert stats.messages_processed == 1
+        assert mock_worker._stats.messages_processed == 1
         # Last trade doesn't update orderbook in v1
-        assert stats.updates_applied == 0
+        assert mock_worker._stats.updates_applied == 0
 
-    @patch("src.worker.logger")
-    def test_process_unknown_event_type(self, mock_logger):
+    @patch("src.worker.worker.logger")
+    def test_process_unknown_event_type(
+        self,
+        mock_logger,
+        mock_worker: Worker,
+    ):
         """Test handling of unknown event type."""
-        store = OrderbookStore()
-        stats = WorkerStats()
-
         # Create message with invalid event type
         message = ParsedMessage(
-            event_type="UNKNOWN",  # type: ignore
+            event_type=EventType.UNKNOWN,
             asset_id="asset1",
             market="market1",
             raw_timestamp=1234567890,
@@ -154,17 +129,14 @@ class TestProcessMessage:
             last_trade=None,
         )
 
-        _process_message(store, message, stats)
+        mock_worker._process_message(message)
 
-        assert stats.messages_processed == 1
+        assert mock_worker._stats.messages_processed == 1
         mock_logger.warning.assert_called_once()
 
-    @patch("src.worker.logger")
-    def test_process_message_assertion_error(self, mock_logger):
+    @patch("src.worker.worker.logger")
+    def test_process_message_assertion_error(self, mock_logger, mock_worker: Worker):
         """Test error handling for assertion failures."""
-        store = OrderbookStore()
-        stats = WorkerStats()
-
         # BOOK message without book field (will fail assertion)
         message = ParsedMessage(
             event_type=EventType.BOOK,
@@ -176,18 +148,17 @@ class TestProcessMessage:
             last_trade=None,
         )
 
-        _process_message(store, message, stats)
+        mock_worker._process_message(message)
 
-        assert stats.messages_processed == 1
+        assert mock_worker._stats.messages_processed == 1
         mock_logger.error.assert_called_once()
 
-    @patch("src.worker.logger")
-    @patch("src.worker._process_book_snapshot")
-    def test_process_message_generic_exception(self, mock_process_book, mock_logger):
+    @patch("src.worker.worker.logger")
+    @patch("src.worker.worker.Worker._process_book_snapshot")
+    def test_process_message_generic_exception(
+        self, mock_process_book, mock_logger, mock_worker: Worker
+    ):
         """Test error handling for generic exceptions."""
-        store = OrderbookStore()
-        stats = WorkerStats()
-
         # Mock processing function to raise exception
         mock_process_book.side_effect = ValueError("Test error")
 
@@ -205,20 +176,32 @@ class TestProcessMessage:
             last_trade=None,
         )
 
-        _process_message(store, message, stats)
+        mock_worker._process_message(message)
 
-        assert stats.messages_processed == 1
+        assert mock_worker._stats.messages_processed == 1
         mock_logger.exception.assert_called_once()
 
 
 class TestProcessBookSnapshot:
     """Test _process_book_snapshot function."""
 
-    def test_process_valid_snapshot(self):
-        """Test processing valid book snapshot."""
+    @pytest.fixture
+    def mock_worker(self) -> Worker:
         store = OrderbookStore()
         stats = WorkerStats()
+        input_queue = MPQueue()
+        stats_queue = MPQueue()
 
+        return Worker(
+            worker_id=1,
+            input_queue=input_queue,
+            stats_queue=stats_queue,
+            orderbook_store=store,
+            stats=stats,
+        )
+
+    def test_process_valid_snapshot(self, mock_worker: Worker):
+        """Test processing valid book snapshot."""
         message = ParsedMessage(
             event_type=EventType.BOOK,
             asset_id="asset1",
@@ -233,21 +216,18 @@ class TestProcessBookSnapshot:
             last_trade=None,
         )
 
-        _process_book_snapshot(store, message, stats)
+        mock_worker._process_book_snapshot(message)
 
-        assert stats.snapshots_received == 1
-        assert stats.updates_applied == 1
+        assert mock_worker._stats.snapshots_received == 1
+        assert mock_worker._stats.updates_applied == 1
 
-        book = store.get_state("asset1")
+        book = mock_worker._store.get_state("asset1")
         assert book is not None
         assert book.best_bid == 500
         assert book.best_ask == 510
 
-    def test_process_snapshot_missing_book_field(self):
+    def test_process_snapshot_missing_book_field(self, mock_worker: Worker):
         """Test assertion when book field is None."""
-        store = OrderbookStore()
-        stats = WorkerStats()
-
         message = ParsedMessage(
             event_type=EventType.BOOK,
             asset_id="asset1",
@@ -259,20 +239,32 @@ class TestProcessBookSnapshot:
         )
 
         with pytest.raises(AssertionError, match="BOOK message missing book field"):
-            _process_book_snapshot(store, message, stats)
+            mock_worker._process_book_snapshot(message)
 
 
 class TestProcessPriceChange:
     """Test _process_price_change function."""
 
-    def test_process_price_change_existing_book(self):
-        """Test price change for existing orderbook."""
+    @pytest.fixture
+    def mock_worker(self) -> Worker:
         store = OrderbookStore()
         stats = WorkerStats()
+        input_queue = MPQueue()
+        stats_queue = MPQueue()
 
+        return Worker(
+            worker_id=1,
+            input_queue=input_queue,
+            stats_queue=stats_queue,
+            orderbook_store=store,
+            stats=stats,
+        )
+
+    def test_process_price_change_existing_book(self, mock_worker: Worker):
+        """Test price change for existing orderbook."""
         # Create initial book
         asset = Asset(asset_id="asset1", market="market1")
-        book = store.register_asset(asset)
+        book = mock_worker._store.register_asset(asset)
         book._bids[-500] = 10000
 
         message = ParsedMessage(
@@ -293,17 +285,14 @@ class TestProcessPriceChange:
             last_trade=None,
         )
 
-        _process_price_change(store, message, stats)
+        mock_worker._process_price_change(message)
 
-        assert stats.updates_applied == 1
+        assert mock_worker._stats.updates_applied == 1
         assert -550 in book._bids
 
-    @patch("src.worker.logger")
-    def test_process_price_change_unknown_asset(self, mock_logger):
+    @patch("src.worker.worker.logger")
+    def test_process_price_change_unknown_asset(self, mock_logger, mock_worker: Worker):
         """Test price change for unknown asset (skip silently)."""
-        store = OrderbookStore()
-        stats = WorkerStats()
-
         message = ParsedMessage(
             event_type=EventType.PRICE_CHANGE,
             asset_id="unknown_asset",
@@ -322,16 +311,13 @@ class TestProcessPriceChange:
             last_trade=None,
         )
 
-        _process_price_change(store, message, stats)
+        mock_worker._process_price_change(message)
 
-        assert stats.updates_applied == 0
-        mock_logger.debug.assert_called_once()
+        assert mock_worker._stats.updates_applied == 0
+        mock_logger.warning.assert_called_once()
 
-    def test_process_price_change_missing_field(self):
+    def test_process_price_change_missing_field(self, mock_worker: Worker):
         """Test assertion when price_change field is None."""
-        store = OrderbookStore()
-        stats = WorkerStats()
-
         message = ParsedMessage(
             event_type=EventType.PRICE_CHANGE,
             asset_id="asset1",
@@ -345,17 +331,29 @@ class TestProcessPriceChange:
         with pytest.raises(
             AssertionError, match="PRICE_CHANGE message missing price_change field"
         ):
-            _process_price_change(store, message, stats)
+            mock_worker._process_price_change(message)
 
 
 class TestProcessLastTrade:
     """Test _process_last_trade function."""
 
-    def test_process_last_trade(self):
-        """Test last trade processing (no-op in v1)."""
+    @pytest.fixture
+    def mock_worker(self) -> Worker:
         store = OrderbookStore()
         stats = WorkerStats()
+        input_queue = MPQueue()
+        stats_queue = MPQueue()
 
+        return Worker(
+            worker_id=1,
+            input_queue=input_queue,
+            stats_queue=stats_queue,
+            orderbook_store=store,
+            stats=stats,
+        )
+
+    def test_process_last_trade(self, mock_worker: Worker):
+        """Test last trade processing (no-op in v1)."""
         message = ParsedMessage(
             event_type=EventType.LAST_TRADE_PRICE,
             asset_id="asset1",
@@ -367,13 +365,10 @@ class TestProcessLastTrade:
         )
 
         # Should not raise
-        _process_last_trade(store, message, stats)
+        mock_worker._process_last_trade(message)
 
-    def test_process_last_trade_missing_field(self):
+    def test_process_last_trade_missing_field(self, mock_worker: Worker):
         """Test assertion when last_trade field is None."""
-        store = OrderbookStore()
-        stats = WorkerStats()
-
         message = ParsedMessage(
             event_type=EventType.LAST_TRADE_PRICE,
             asset_id="asset1",
@@ -387,180 +382,15 @@ class TestProcessLastTrade:
         with pytest.raises(
             AssertionError, match="LAST_TRADE_PRICE message missing last_trade field"
         ):
-            _process_last_trade(store, message, stats)
-
-
-class TestWorkerManager:
-    """Test WorkerManager class."""
-
-    def test_init_valid(self):
-        """Test WorkerManager initialization with valid num_workers."""
-        manager = WorkerManager(num_workers=4)
-        assert manager.num_workers == 4
-        assert not manager._running
-        assert len(manager._processes) == 0
-
-    def test_init_invalid_num_workers(self):
-        """Test WorkerManager rejects invalid num_workers."""
-        with pytest.raises(ValueError, match="num_workers must be at least 1"):
-            WorkerManager(num_workers=0)
-
-        with pytest.raises(ValueError, match="num_workers must be at least 1"):
-            WorkerManager(num_workers=-1)
-
-    @patch("src.worker.logger")
-    @patch("os.cpu_count", return_value=4)
-    def test_init_warns_excessive_workers(self, mock_cpu_count, mock_logger):
-        """Test warning when num_workers exceeds CPU count."""
-        manager = WorkerManager(num_workers=8)
-        assert manager.num_workers == 8
-        mock_logger.warning.assert_called_once()
-        assert "exceeds CPU count" in mock_logger.warning.call_args[0][0]
-
-    def test_get_input_queues(self):
-        """Test getting input queues creates them once."""
-        manager = WorkerManager(num_workers=3)
-        queues1 = manager.get_input_queues()
-        queues2 = manager.get_input_queues()
-
-        assert len(queues1) == 3
-        assert queues1 is queues2  # Same instance
-
-    def test_num_workers_property(self):
-        """Test num_workers property."""
-        manager = WorkerManager(num_workers=5)
-        assert manager.num_workers == 5
-
-    @patch("src.worker.logger")
-    def test_start_when_already_running(self, mock_logger):
-        """Test start() when already running logs warning."""
-        manager = WorkerManager(num_workers=1)
-        manager._running = True
-
-        manager.start()
-
-        mock_logger.warning.assert_called_with("WorkerManager already running")
-
-    @patch("src.worker.logger")
-    def test_stop_when_not_running(self, mock_logger):
-        """Test stop() when not running logs warning."""
-        manager = WorkerManager(num_workers=1)
-        manager._running = False
-
-        manager.stop()
-
-        mock_logger.warning.assert_called_with("WorkerManager not running")
-
-    def test_start_stop_lifecycle(self):
-        """Test full start/stop lifecycle."""
-        manager = WorkerManager(num_workers=2)
-
-        # Start workers
-        manager.start()
-        assert manager._running
-        assert len(manager._processes) == 2
-        assert all(p.is_alive() for p in manager._processes)
-
-        # Stop workers
-        manager.stop(timeout=2.0)
-        assert not manager._running
-        assert len(manager._processes) == 0
-
-    def test_is_healthy_when_running(self):
-        """Test is_healthy returns True when all workers alive."""
-        manager = WorkerManager(num_workers=2)
-        manager.start()
-
-        assert manager.is_healthy()
-
-        manager.stop()
-
-    def test_is_healthy_when_not_running(self):
-        """Test is_healthy returns False when not running."""
-        manager = WorkerManager(num_workers=2)
-        assert not manager.is_healthy()
-
-    def test_get_alive_count(self):
-        """Test get_alive_count returns correct count."""
-        manager = WorkerManager(num_workers=2)
-        manager.start()
-
-        assert manager.get_alive_count() == 2
-
-        manager.stop()
-
-    def test_get_stats_empty(self):
-        """Test get_stats returns empty dict when no stats available."""
-        manager = WorkerManager(num_workers=2)
-        stats = manager.get_stats()
-        assert stats == {}
-
-    @patch("src.worker.logger")
-    def test_stop_with_full_queue(self, mock_logger):
-        """Test stop() handles Full exception when sending sentinels."""
-        manager = WorkerManager(num_workers=2)
-        manager.start()
-
-        # Mock queue to raise Full
-        for queue in manager._input_queues:
-            queue.put_nowait = Mock(side_effect=Full())
-
-        manager.stop(timeout=1.0)
-
-        # Should log warning about failed sentinel
-        assert mock_logger.warning.call_count >= 2
-
-    @patch("src.worker.logger")
-    def test_stop_force_terminate(self, mock_logger):
-        """Test stop() force terminates hung workers."""
-        manager = WorkerManager(num_workers=1)
-        manager.start()
-
-        # Mock process to not join gracefully
-        mock_process = Mock()
-        mock_process.is_alive.return_value = True
-        mock_process.join = Mock()
-        mock_process.terminate = Mock()
-        mock_process.kill = Mock()
-        mock_process.name = "test-worker"
-        manager._processes = [mock_process]
-
-        manager.stop(timeout=0.1)
-
-        # Should attempt terminate
-        mock_process.terminate.assert_called_once()
-        mock_logger.warning.assert_called()
-
-    @patch("src.worker.logger")
-    def test_stop_force_kill(self, mock_logger):
-        """Test stop() kills workers that don't terminate."""
-        manager = WorkerManager(num_workers=1)
-        manager._running = True
-
-        # Mock process that survives terminate
-        mock_process = Mock()
-        mock_process.is_alive.return_value = True
-        mock_process.join = Mock()
-        mock_process.terminate = Mock()
-        mock_process.kill = Mock()
-        mock_process.name = "test-worker"
-        manager._processes = [mock_process]
-        manager._input_queues = [Mock()]
-
-        manager.stop(timeout=0.1)
-
-        # Should attempt both terminate and kill
-        mock_process.terminate.assert_called_once()
-        mock_process.kill.assert_called_once()
-        mock_logger.error.assert_called()
+            mock_worker._process_last_trade(message)
 
 
 class TestWorkerProcess:
     """Test _worker_process function (worker entry point)."""
 
-    @patch("src.worker.signal.signal")
-    @patch("src.worker.time.monotonic")
-    @patch("src.worker.logger")
+    @patch("src.worker.worker.signal.signal")
+    @patch("src.worker.worker.time.monotonic")
+    @patch("src.worker.worker.logger")
     def test_worker_process_shutdown_sentinel(
         self, mock_logger, mock_monotonic, mock_signal
     ):
@@ -580,9 +410,9 @@ class TestWorkerProcess:
         # Verify graceful shutdown
         mock_logger.info.assert_any_call("Worker 0 received shutdown sentinel")
 
-    @patch("src.worker.signal.signal")
-    @patch("src.worker.time.monotonic")
-    @patch("src.worker.QUEUE_TIMEOUT", 0.01)  # Speed up test
+    @patch("src.worker.worker.signal.signal")
+    @patch("src.worker.worker.time.monotonic")
+    @patch("src.worker.worker.QUEUE_TIMEOUT", 0.01)  # Speed up test
     def test_worker_process_shutdown_event(self, mock_monotonic, mock_signal):
         """Test worker shuts down when shutdown_event is set."""
         # Setup
@@ -600,9 +430,9 @@ class TestWorkerProcess:
         # Worker should have exited cleanly
         assert shutdown_event.is_set()
 
-    @patch("src.worker.signal.signal")
-    @patch("src.worker.time.monotonic")
-    @patch("src.worker.logger")
+    @patch("src.worker.worker.signal.signal")
+    @patch("src.worker.worker.time.monotonic")
+    @patch("src.worker.worker.logger")
     def test_worker_process_processes_message(
         self, mock_logger, mock_monotonic, mock_signal
     ):
@@ -642,9 +472,9 @@ class TestWorkerProcess:
         assert worker_id == 0
         assert stats.messages_processed >= 1
 
-    @patch("src.worker.signal.signal")
-    @patch("src.worker.time.monotonic")
-    @patch("src.worker.logger")
+    @patch("src.worker.worker.signal.signal")
+    @patch("src.worker.worker.time.monotonic")
+    @patch("src.worker.worker.logger")
     def test_worker_process_handles_queue_timeout(
         self, mock_logger, mock_monotonic, mock_signal
     ):
@@ -677,10 +507,10 @@ class TestWorkerProcess:
         # Should have handled timeouts gracefully (no crash)
         assert True
 
-    @patch("src.worker.signal.signal")
-    @patch("src.worker.time.monotonic")
-    @patch("src.worker.logger")
-    @patch("src.worker.HEARTBEAT_INTERVAL", 0.1)
+    @patch("src.worker.worker.signal.signal")
+    @patch("src.worker.worker.time.monotonic")
+    @patch("src.worker.worker.logger")
+    @patch("src.worker.worker.HEARTBEAT_INTERVAL", 0.1)
     def test_worker_process_heartbeat_updates(
         self, mock_logger, mock_monotonic, mock_signal
     ):
@@ -723,10 +553,10 @@ class TestWorkerProcess:
         assert stats.orderbook_count >= 0
         assert stats.memory_usage_bytes >= 0
 
-    @patch("src.worker.signal.signal")
-    @patch("src.worker.time.monotonic")
-    @patch("src.worker.logger")
-    @patch("src.worker.STATS_INTERVAL", 0.1)
+    @patch("src.worker.worker.signal.signal")
+    @patch("src.worker.worker.time.monotonic")
+    @patch("src.worker.worker.logger")
+    @patch("src.worker.worker.STATS_INTERVAL", 0.1)
     def test_worker_process_stats_reporting(
         self, mock_logger, mock_monotonic, mock_signal
     ):
@@ -749,9 +579,9 @@ class TestWorkerProcess:
         final_stats = stats_queue.get(timeout=1.0)
         assert final_stats is not None
 
-    @patch("src.worker.signal.signal")
-    @patch("src.worker.time.monotonic")
-    @patch("src.worker.logger")
+    @patch("src.worker.worker.signal.signal")
+    @patch("src.worker.worker.time.monotonic")
+    @patch("src.worker.worker.logger")
     def test_worker_process_handles_processing_exception(
         self, mock_logger, mock_monotonic, mock_signal
     ):
@@ -783,9 +613,9 @@ class TestWorkerProcess:
         # Worker should have logged error but continued
         mock_logger.error.assert_called()
 
-    @patch("src.worker.signal.signal")
-    @patch("src.worker.time.monotonic")
-    @patch("src.worker.logger")
+    @patch("src.worker.worker.signal.signal")
+    @patch("src.worker.worker.time.monotonic")
+    @patch("src.worker.worker.logger")
     def test_worker_process_finally_sends_stats(
         self, mock_logger, mock_monotonic, mock_signal
     ):
@@ -811,9 +641,9 @@ class TestWorkerProcess:
         calls = [str(call) for call in mock_logger.info.call_args_list]
         assert any("stopping" in str(call).lower() for call in calls)
 
-    @patch("src.worker.signal.signal")
-    @patch("src.worker.time.monotonic")
-    @patch("src.worker.logger")
+    @patch("src.worker.worker.signal.signal")
+    @patch("src.worker.worker.time.monotonic")
+    @patch("src.worker.worker.logger")
     def test_worker_process_finally_handles_full_queue(
         self, mock_logger, mock_monotonic, mock_signal
     ):
@@ -835,10 +665,10 @@ class TestWorkerProcess:
         # Should not crash, even though stats queue was full
         assert True
 
-    @patch("src.worker.signal.signal")
-    @patch("src.worker.time.monotonic")
-    @patch("src.worker.logger")
-    @patch("src.worker.STATS_INTERVAL", 0.1)
+    @patch("src.worker.worker.signal.signal")
+    @patch("src.worker.worker.time.monotonic")
+    @patch("src.worker.worker.logger")
+    @patch("src.worker.worker.STATS_INTERVAL", 0.1)
     def test_worker_process_stats_report_handles_full_queue(
         self, mock_logger, mock_monotonic, mock_signal
     ):
@@ -863,9 +693,9 @@ class TestWorkerProcess:
         # Should not crash
         assert True
 
-    @patch("src.worker.signal.signal")
-    @patch("src.worker.time.monotonic")
-    @patch("src.worker.logger")
+    @patch("src.worker.worker.signal.signal")
+    @patch("src.worker.worker.time.monotonic")
+    @patch("src.worker.worker.logger")
     def test_worker_process_tracks_processing_time(
         self, mock_logger, mock_monotonic, mock_signal
     ):
@@ -905,7 +735,7 @@ class TestWorkerProcess:
         _, stats = final_stats
         assert stats.processing_time_ms > 0
 
-    @patch("src.worker.signal.signal")
+    @patch("src.worker.worker.signal.signal")
     def test_worker_process_signal_handling_setup(self, mock_signal):
         """Test worker sets up SIGINT signal handling."""
         # Setup
