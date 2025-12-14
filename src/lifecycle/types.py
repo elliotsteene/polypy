@@ -11,7 +11,7 @@ class MarketInfo:
     condition_id: str
     question: str
     outcomes: list[str]
-    tokens: list[dict]  # [{token_id: str, outcome: str}]
+    tokens: list[dict[str, str]]  # [{token_id: str, outcome: str}]
     end_date_iso: str
     end_timestamp: int  # Unix milliseconds
     active: bool
