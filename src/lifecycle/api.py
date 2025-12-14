@@ -98,7 +98,7 @@ def _is_valid_market(data: dict[str, Any]) -> bool:
 def _parse_market(data: dict[str, Any]) -> MarketInfo:
     """Parse raw API response into MarketInfo."""
     # Parse ISO date to unix milliseconds
-    end_date_iso = data.get("endDate", "")
+    end_date_iso: str = data.get("endDate", "")
     end_timestamp = 0
 
     if end_date_iso:
@@ -109,28 +109,17 @@ def _parse_market(data: dict[str, Any]) -> MarketInfo:
             logger.warning(f"Invalid endDate format: {end_date_iso}")
 
     # Parse outcomes from JSON string
-    outcomes_raw = data.get("outcomes", '["Yes", "No"]')
-    try:
-        outcomes = (
-            json.loads(outcomes_raw) if isinstance(outcomes_raw, str) else outcomes_raw
-        )
-    except json.JSONDecodeError:
-        outcomes = ["Yes", "No"]
+    outcomes = _parse_outcomes(
+        outcomes_raw=data.get("outcomes", '["Yes", "No"]'),
+    )
 
     # Parse token IDs from JSON string and create token list
-    clob_token_ids_raw = data.get("clobTokenIds", "[]")
-    try:
-        clob_token_ids = (
-            json.loads(clob_token_ids_raw)
-            if isinstance(clob_token_ids_raw, str)
-            else clob_token_ids_raw
-        )
-    except json.JSONDecodeError:
-        logger.warning(f"Unable to parse clobTokenIds: {data['conditionId']}")
-        clob_token_ids = []
+    clob_token_ids = _parse_clob_token_ids(
+        clob_token_ids_raw=data.get("clobTokenIds", "[]")
+    )
 
     # Create tokens list with outcome mapping
-    tokens = []
+    tokens: list[dict[str, str]] = []
     for i, token_id in enumerate(clob_token_ids):
         outcome = outcomes[i] if i < len(outcomes) else f"Outcome {i}"
         tokens.append({"token_id": token_id, "outcome": outcome})
@@ -145,3 +134,27 @@ def _parse_market(data: dict[str, Any]) -> MarketInfo:
         active=data.get("active", True),
         closed=data.get("closed", False),
     )
+
+
+def _parse_outcomes(outcomes_raw: str) -> list[str]:
+    try:
+        outcomes: list[str] = (
+            json.loads(outcomes_raw) if isinstance(outcomes_raw, str) else outcomes_raw
+        )
+    except json.JSONDecodeError:
+        outcomes = ["Yes", "No"]
+
+    return outcomes
+
+
+def _parse_clob_token_ids(clob_token_ids_raw: str) -> list[str]:
+    try:
+        clob_token_ids: list[str] = (
+            json.loads(clob_token_ids_raw)
+            if isinstance(clob_token_ids_raw, str)
+            else clob_token_ids_raw
+        )
+    except json.JSONDecodeError:
+        clob_token_ids = []
+
+    return clob_token_ids
