@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import asdict
 from datetime import datetime, timezone
 from typing import TYPE_CHECKING
 
@@ -260,20 +261,6 @@ class HTTPServer:
             )
 
         return web.json_response(
-            {
-                "asset_id": response.asset_id,
-                "bids": response.bids,
-                "asks": response.asks,
-                "metrics": (
-                    {
-                        "spread": response.metrics.spread,
-                        "mid_price": response.metrics.mid_price,
-                        "imbalance": response.metrics.imbalance,
-                    }
-                    if response.metrics
-                    else None
-                ),
-                "last_update_ts": response.last_update_ts,
-            },
+            asdict(response),
             status=200,
         )

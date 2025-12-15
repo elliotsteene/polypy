@@ -29,6 +29,17 @@ class OrderbookMetrics:
 
 
 @dataclass(slots=True)
+class HistoryPoint:
+    """Single history data point."""
+
+    timestamp: int
+    best_bid: int | None
+    best_ask: int | None
+    spread: int | None
+    mid_price: int | None
+
+
+@dataclass(slots=True)
 class OrderbookResponse:
     """Response containing orderbook state."""
 
@@ -41,4 +52,5 @@ class OrderbookResponse:
     asks: list[tuple[float, float]] = field(default_factory=list)
     metrics: OrderbookMetrics | None = None
     last_update_ts: int = 0
+    history: list[HistoryPoint] = field(default_factory=list)
     error: str | None = None
