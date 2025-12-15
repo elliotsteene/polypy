@@ -11,6 +11,7 @@ from prometheus_client import CONTENT_TYPE_LATEST
 
 from src.core.logging import Logger
 from src.registry.asset_entry import AssetStatus
+from src.server.websocket_handler import OrderbookStreamHandler
 
 if TYPE_CHECKING:
     from src.app import PolyPy
@@ -33,6 +34,7 @@ class HTTPServer:
         "_runner",
         "_site",
         "_running",
+        "_ws_handler",
     )
 
     def __init__(
@@ -54,6 +56,7 @@ class HTTPServer:
         self._runner: web.AppRunner | None = None
         self._site: web.TCPSite | None = None
         self._running = False
+        self._ws_handler = OrderbookStreamHandler(app)
 
     async def start(self) -> None:
         """Start HTTP server.
@@ -74,6 +77,7 @@ class HTTPServer:
         web_app.router.add_get("/metrics", self._handle_metrics)
         web_app.router.add_get("/markets", self._handle_markets)
         web_app.router.add_get("/orderbook/{asset_id}", self._handle_orderbook)
+        web_app.router.add_get("/ws/orderbook", self._handle_ws_orderbook)
 
         # Start server
         self._runner = web.AppRunner(web_app)
@@ -264,3 +268,13 @@ class HTTPServer:
             asdict(response),
             status=200,
         )
+
+    async def _handle_ws_orderbook(self, request: web.Request) -> web.WebSocketResponse:
+        """Handle WebSocket connection for orderbook streaming.
+
+        Delegates to OrderbookStreamHandler for clean separation of concerns.
+
+        Returns:
+            WebSocketResponse for bidirectional communication
+        """
+        return await self._ws_handler.handle_connection(request)
