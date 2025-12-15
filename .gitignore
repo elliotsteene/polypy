@@ -209,3 +209,5 @@ __marimo__/
 src/exercises
 thoughts/
 /lessons
+
+**/node_modules
