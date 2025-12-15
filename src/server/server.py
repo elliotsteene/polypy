@@ -72,6 +72,7 @@ class HTTPServer:
         web_app.router.add_get("/stats", self._handle_stats)
         web_app.router.add_get("/metrics", self._handle_metrics)
         web_app.router.add_get("/markets", self._handle_markets)
+        web_app.router.add_get("/orderbook/{asset_id}", self._handle_orderbook)
 
         # Start server
         self._runner = web.AppRunner(web_app)
@@ -225,3 +226,54 @@ class HTTPServer:
                 )
 
         return web.json_response({"markets": result}, status=200)
+
+    async def _handle_orderbook(self, request: web.Request) -> web.Response:
+        """Handle GET /orderbook/{asset_id} endpoint.
+
+        Returns:
+            200 OK with orderbook data
+            404 Not Found if asset not found
+            503 Service Unavailable when workers not available
+        """
+        asset_id = request.match_info["asset_id"]
+        depth = int(request.query.get("depth", "10"))
+
+        logger.debug(f"GET /orderbook/{asset_id}")
+
+        if not self._app._workers or not self._app._router:
+            return web.json_response({"error": "Workers not available"}, status=503)
+
+        # Determine which worker owns this asset
+        worker_idx = self._app._router.get_worker_for_asset(asset_id)
+
+        # Query worker
+        response = await self._app._workers.query_orderbook(
+            asset_id=asset_id,
+            worker_idx=worker_idx,
+            depth=depth,
+        )
+
+        if not response.found:
+            return web.json_response(
+                {"error": response.error or "Asset not found"},
+                status=404,
+            )
+
+        return web.json_response(
+            {
+                "asset_id": response.asset_id,
+                "bids": response.bids,
+                "asks": response.asks,
+                "metrics": (
+                    {
+                        "spread": response.metrics.spread,
+                        "mid_price": response.metrics.mid_price,
+                        "imbalance": response.metrics.imbalance,
+                    }
+                    if response.metrics
+                    else None
+                ),
+                "last_update_ts": response.last_update_ts,
+            },
+            status=200,
+        )
