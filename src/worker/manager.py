@@ -1,5 +1,7 @@
+import asyncio
 import os
 import time
+import uuid
 from multiprocessing import Event as MPEvent
 from multiprocessing import Process
 from multiprocessing import Queue as MPQueue
@@ -9,6 +11,7 @@ from queue import Empty, Full
 import structlog
 
 from src.core.logging import Logger
+from src.worker.protocol import OrderbookRequest, OrderbookResponse
 from src.worker.stats import WorkerStats
 from src.worker.worker import _worker_process
 
@@ -32,6 +35,7 @@ class WorkerManager:
         "_processes",
         "_input_queues",
         "_stats_queue",
+        "_response_queue",
         "_shutdown_event",
         "_running",
     )
@@ -61,6 +65,7 @@ class WorkerManager:
         self._processes: list[Process] = []
         self._input_queues: list[MPQueue] = []
         self._stats_queue: MPQueue = MPQueue()
+        self._response_queue: MPQueue = MPQueue()
         self._shutdown_event: Event = MPEvent()
         self._running = False
 
@@ -102,6 +107,7 @@ class WorkerManager:
                     worker_id,
                     queues[worker_id],
                     self._stats_queue,
+                    self._response_queue,
                     self._shutdown_event,
                 ),
                 name=f"orderbook-worker-{worker_id}",
@@ -207,3 +213,74 @@ class WorkerManager:
             Number of workers currently running
         """
         return sum(1 for p in self._processes if p.is_alive())
+
+    def get_response_queue(self) -> MPQueue:
+        """Get the shared response queue for worker responses."""
+        return self._response_queue
+
+    async def query_orderbook(
+        self,
+        asset_id: str,
+        worker_idx: int,
+        depth: int = 10,
+        timeout: float = 1.0,
+    ) -> "OrderbookResponse":
+        """
+        Query orderbook state from a worker.
+
+        Args:
+            asset_id: Asset to query
+            worker_idx: Worker index that owns this asset
+            depth: Number of price levels to return
+            timeout: Max wait time for response
+
+        Returns:
+            OrderbookResponse with orderbook state or error
+        """
+        request_id = str(uuid.uuid4())
+        request = OrderbookRequest(
+            request_id=request_id,
+            asset_id=asset_id,
+            depth=depth,
+        )
+
+        # Send request to worker
+        queue = self._input_queues[worker_idx]
+        try:
+            queue.put((request, time.monotonic()), timeout=0.1)
+        except Full:
+            return OrderbookResponse(
+                request_id=request_id,
+                asset_id=asset_id,
+                found=False,
+                error="Worker queue full",
+            )
+
+        # Wait for response (poll response queue)
+        deadline = time.monotonic() + timeout
+
+        while time.monotonic() < deadline:
+            # Yield control to event loop while polling
+            await asyncio.sleep(0.01)
+
+            try:
+                response = self._response_queue.get_nowait()
+                if response.request_id == request_id:
+                    return response
+                # Wrong response - put back (for concurrent requests)
+                # For single client, we can discard, but being defensive
+                try:
+                    self._response_queue.put_nowait(response)
+                except Full:
+                    logger.warning(
+                        f"Response queue full, discarding response for {response.request_id}"
+                    )
+            except Empty:
+                continue
+
+        return OrderbookResponse(
+            request_id=request_id,
+            asset_id=asset_id,
+            found=False,
+            error="Request timeout",
+        )

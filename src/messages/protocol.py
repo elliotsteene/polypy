@@ -57,6 +57,16 @@ def scale_size(size: str) -> int:
     return int(float(size) * SIZE_SCALE)
 
 
+def unscale_price(price_int: int) -> float:
+    """Convert scaled integer price back to float with 3 decimal precision."""
+    return round(price_int / PRICE_SCALE, 3)
+
+
+def unscale_size(size_int: int) -> float:
+    """Convert scaled integer size back to float with 3 decimal precision."""
+    return round(size_int / SIZE_SCALE, 3)
+
+
 ################
 # BOOK MESSAGE
 # ##############
