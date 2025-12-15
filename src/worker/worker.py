@@ -20,7 +20,12 @@ import structlog
 from src.core.logging import Logger
 from src.messages.protocol import EventType, ParsedMessage, unscale_price, unscale_size
 from src.orderbook.orderbook_store import Asset, OrderbookStore
-from src.worker.protocol import OrderbookMetrics, OrderbookRequest, OrderbookResponse
+from src.worker.protocol import (
+    HistoryPoint,
+    OrderbookMetrics,
+    OrderbookRequest,
+    OrderbookResponse,
+)
 from src.worker.stats import WorkerStats
 
 logger: Logger = structlog.getLogger(__name__)
@@ -274,6 +279,18 @@ class Worker:
                 imbalance=imbalance,
             )
 
+            # Include history
+            history = [
+                HistoryPoint(
+                    timestamp=snap.timestamp,
+                    best_bid=snap.best_bid,
+                    best_ask=snap.best_ask,
+                    spread=snap.spread,
+                    mid_price=snap.mid_price,
+                )
+                for snap in orderbook.get_history(limit=50)
+            ]
+
             response = OrderbookResponse(
                 request_id=request.request_id,
                 asset_id=request.asset_id,
@@ -282,6 +299,7 @@ class Worker:
                 asks=asks,
                 metrics=metrics,
                 last_update_ts=orderbook.last_update_ts,
+                history=history,
             )
 
         try:
