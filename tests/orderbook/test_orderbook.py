@@ -300,3 +300,182 @@ class TestOrderbookStore:
 
         # Assert - market index should still have asset2
         assert store.get_state("456") is not None
+
+
+class TestOrderbookHistory:
+    """Test historical snapshot capture and retrieval."""
+
+    def test_snapshot_captured_on_apply_snapshot(self) -> None:
+        # Arrange
+        book = OrderbookState(asset_id="123", market="0xabc")
+        snapshot = BookSnapshot(
+            hash="0x0",
+            bids=(PriceLevel(price=490, size=1000),),
+            asks=(PriceLevel(price=510, size=2000),),
+        )
+
+        # Act
+        book.apply_snapshot(snapshot, timestamp=1000)
+
+        # Assert
+        history = book.get_history()
+        assert len(history) == 1
+        assert history[0].timestamp == 1000
+        assert history[0].best_bid == 490
+        assert history[0].best_ask == 510
+        assert history[0].spread == 20
+        assert history[0].mid_price == 500
+        assert history[0].bid_depth == 1000
+        assert history[0].ask_depth == 2000
+
+    def test_snapshot_captured_on_apply_price_change(self) -> None:
+        # Arrange
+        book = OrderbookState(asset_id="123", market="0xabc", _history_interval_ms=1000)
+        snapshot = BookSnapshot(
+            hash="0x0",
+            bids=(PriceLevel(price=490, size=1000),),
+            asks=(PriceLevel(price=510, size=1000),),
+        )
+        book.apply_snapshot(snapshot, timestamp=1000)
+
+        # Act - apply price change after interval
+        change = PriceChange(
+            asset_id="123",
+            price=495,
+            size=500,
+            side=Side.BUY,
+            hash="0x1",
+            best_bid=495,
+            best_ask=510,
+        )
+        book.apply_price_change(change, timestamp=2000)
+
+        # Assert
+        history = book.get_history()
+        assert len(history) == 2
+        assert history[0].timestamp == 2000  # Newest first
+        assert history[0].best_bid == 495
+        assert history[1].timestamp == 1000
+
+    def test_snapshot_not_captured_if_interval_not_elapsed(self) -> None:
+        # Arrange
+        book = OrderbookState(asset_id="123", market="0xabc")
+        snapshot = BookSnapshot(
+            hash="0x0",
+            bids=(PriceLevel(price=490, size=1000),),
+            asks=(PriceLevel(price=510, size=1000),),
+        )
+        book.apply_snapshot(snapshot, timestamp=1000)
+
+        # Act - apply change within interval (< 1000ms)
+        change = PriceChange(
+            asset_id="123",
+            price=495,
+            size=500,
+            side=Side.BUY,
+            hash="0x1",
+            best_bid=495,
+            best_ask=510,
+        )
+        book.apply_price_change(change, timestamp=1500)  # Only 500ms later
+
+        # Assert - should still only have 1 snapshot
+        history = book.get_history()
+        assert len(history) == 1
+        assert history[0].timestamp == 1000
+
+    def test_history_ring_buffer_maxlen(self) -> None:
+        # Arrange
+        book = OrderbookState(asset_id="123", market="0xabc", _history_interval_ms=1000)
+        snapshot = BookSnapshot(
+            hash="0x0",
+            bids=(PriceLevel(price=490, size=1000),),
+            asks=(PriceLevel(price=510, size=1000),),
+        )
+
+        # Act - apply 101 snapshots (buffer maxlen=100)
+        for i in range(101):
+            book.apply_snapshot(snapshot, timestamp=i * 1000)
+
+        # Assert - should only keep most recent 100
+        history = book.get_history()
+        assert len(history) == 100
+        assert history[0].timestamp == 100000  # Newest
+        assert history[-1].timestamp == 1000  # Oldest retained
+
+    def test_get_history_limit_parameter(self) -> None:
+        # Arrange
+        book = OrderbookState(asset_id="123", market="0xabc", _history_interval_ms=1000)
+        snapshot = BookSnapshot(
+            hash="0x0",
+            bids=(PriceLevel(price=490, size=1000),),
+            asks=(PriceLevel(price=510, size=1000),),
+        )
+
+        # Apply 10 snapshots
+        for i in range(10):
+            book.apply_snapshot(snapshot, timestamp=i * 1000)
+
+        # Act
+        history = book.get_history(limit=5)
+
+        # Assert - should return only 5 newest
+        assert len(history) == 5
+        assert history[0].timestamp == 9000  # Newest
+        assert history[-1].timestamp == 5000
+
+    def test_get_history_empty_book(self) -> None:
+        # Arrange
+        book = OrderbookState(asset_id="123", market="0xabc")
+
+        # Act
+        history = book.get_history()
+
+        # Assert
+        assert len(history) == 0
+
+    def test_orderbook_snapshot_immutable(self) -> None:
+        # Arrange
+        book = OrderbookState(asset_id="123", market="0xabc")
+        snapshot = BookSnapshot(
+            hash="0x0",
+            bids=(PriceLevel(price=490, size=1000),),
+            asks=(PriceLevel(price=510, size=1000),),
+        )
+        book.apply_snapshot(snapshot, timestamp=1000)
+
+        # Act
+        history = book.get_history()
+        first_snapshot = history[0]
+
+        # Assert - snapshot is frozen (immutable)
+        try:
+            first_snapshot.timestamp = 2000  # type: ignore
+            assert False, "Should not allow mutation"
+        except AttributeError:
+            pass  # Expected - dataclass is frozen
+
+    def test_snapshot_captures_depth_correctly(self) -> None:
+        # Arrange
+        book = OrderbookState(asset_id="123", market="0xabc")
+        snapshot = BookSnapshot(
+            hash="0x0",
+            bids=(
+                PriceLevel(price=490, size=1000),
+                PriceLevel(price=480, size=500),
+                PriceLevel(price=470, size=300),
+            ),
+            asks=(
+                PriceLevel(price=510, size=2000),
+                PriceLevel(price=520, size=1500),
+            ),
+        )
+
+        # Act
+        book.apply_snapshot(snapshot, timestamp=1000)
+
+        # Assert
+        history = book.get_history()
+        assert len(history) == 1
+        assert history[0].bid_depth == 1800  # 1000 + 500 + 300
+        assert history[0].ask_depth == 3500  # 2000 + 1500

@@ -1,9 +1,23 @@
 import time
+from collections import deque
 from dataclasses import dataclass, field
 
 from sortedcontainers import SortedDict
 
 from src.messages.protocol import BookSnapshot, PriceChange, PriceLevel, Side
+
+
+@dataclass(slots=True, frozen=True)
+class OrderbookSnapshot:
+    """Point-in-time orderbook snapshot."""
+
+    timestamp: int  # Unix ms
+    best_bid: int | None
+    best_ask: int | None
+    spread: int | None
+    mid_price: int | None
+    bid_depth: int  # Total bid volume
+    ask_depth: int  # Total ask volume
 
 
 @dataclass(slots=True)
@@ -34,6 +48,10 @@ class OrderbookState:
     _cached_best_ask: int | None = None
     _cache_valid: bool = False
 
+    # Historical snapshots (ring buffer)
+    _history: deque = field(default_factory=lambda: deque(maxlen=100))
+    _history_interval_ms: int = 30_000  # Capture every 30s
+
     def apply_snapshot(self, snapshot: BookSnapshot, timestamp: int) -> None:
         """
         Apply full book snapshot, replacing existing state
@@ -53,6 +71,7 @@ class OrderbookState:
         self.last_update_ts = timestamp
         self.local_update_ts = time.monotonic()
         self._invalidate_cache()
+        self._maybe_capture_snapshot()
 
     def apply_price_change(self, price_change: PriceChange, timestamp: int) -> None:
         """
@@ -82,6 +101,7 @@ class OrderbookState:
         self.last_hash = price_change.hash
         self.last_update_ts = timestamp
         self.local_update_ts = time.monotonic()
+        self._maybe_capture_snapshot()
 
     @staticmethod
     def _update_price_level(key: int, size: int, price_map: SortedDict) -> None:
@@ -158,6 +178,30 @@ class OrderbookState:
         self._set_best_ask(best_ask)
 
         self._cache_valid = True
+
+    def _maybe_capture_snapshot(self) -> None:
+        """Capture snapshot if enough time has passed."""
+        if not self._history or (
+            self.last_update_ts - self._history[-1].timestamp
+            >= self._history_interval_ms
+        ):
+            bid_depth = sum(self._bids.values())
+            ask_depth = sum(self._asks.values())
+
+            snapshot = OrderbookSnapshot(
+                timestamp=self.last_update_ts,
+                best_bid=self.best_bid,
+                best_ask=self.best_ask,
+                spread=self.spread,
+                mid_price=self.mid_price,
+                bid_depth=bid_depth,
+                ask_depth=ask_depth,
+            )
+            self._history.append(snapshot)
+
+    def get_history(self, limit: int = 100) -> list[OrderbookSnapshot]:
+        """Get recent snapshots, newest first."""
+        return list(reversed(list(self._history)))[:limit]
 
     def __sizeof__(self) -> int:
         """Approx memory usage"""
