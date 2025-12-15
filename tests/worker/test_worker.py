@@ -29,11 +29,13 @@ class TestProcessMessage:
         stats = WorkerStats()
         input_queue = MPQueue()
         stats_queue = MPQueue()
+        response_queue = MPQueue()
 
         return Worker(
             worker_id=1,
             input_queue=input_queue,
             stats_queue=stats_queue,
+            response_queue=response_queue,
             orderbook_store=store,
             stats=stats,
         )
@@ -191,11 +193,13 @@ class TestProcessBookSnapshot:
         stats = WorkerStats()
         input_queue = MPQueue()
         stats_queue = MPQueue()
+        response_queue = MPQueue()
 
         return Worker(
             worker_id=1,
             input_queue=input_queue,
             stats_queue=stats_queue,
+            response_queue=response_queue,
             orderbook_store=store,
             stats=stats,
         )
@@ -251,11 +255,13 @@ class TestProcessPriceChange:
         stats = WorkerStats()
         input_queue = MPQueue()
         stats_queue = MPQueue()
+        response_queue = MPQueue()
 
         return Worker(
             worker_id=1,
             input_queue=input_queue,
             stats_queue=stats_queue,
+            response_queue=response_queue,
             orderbook_store=store,
             stats=stats,
         )
@@ -343,11 +349,13 @@ class TestProcessLastTrade:
         stats = WorkerStats()
         input_queue = MPQueue()
         stats_queue = MPQueue()
+        response_queue = MPQueue()
 
         return Worker(
             worker_id=1,
             input_queue=input_queue,
             stats_queue=stats_queue,
+            response_queue=response_queue,
             orderbook_store=store,
             stats=stats,
         )
@@ -405,7 +413,8 @@ class TestWorkerProcess:
         input_queue.put(None)
 
         # Run worker
-        _worker_process(0, input_queue, stats_queue, shutdown_event)
+        response_queue = MPQueue()
+        _worker_process(0, input_queue, stats_queue, response_queue, shutdown_event)
 
         # Verify graceful shutdown
         mock_logger.info.assert_any_call("Worker 0 received shutdown sentinel")
@@ -425,7 +434,8 @@ class TestWorkerProcess:
         shutdown_event.set()
 
         # Run worker (should exit immediately)
-        _worker_process(0, input_queue, stats_queue, shutdown_event)
+        response_queue = MPQueue()
+        _worker_process(0, input_queue, stats_queue, response_queue, shutdown_event)
 
         # Worker should have exited cleanly
         assert shutdown_event.is_set()
@@ -464,7 +474,8 @@ class TestWorkerProcess:
         input_queue.put(None)
 
         # Run worker
-        _worker_process(0, input_queue, stats_queue, shutdown_event)
+        response_queue = MPQueue()
+        _worker_process(0, input_queue, stats_queue, response_queue, shutdown_event)
 
         # Verify message was processed (check final stats)
         final_stats = stats_queue.get(timeout=1.0)
@@ -502,7 +513,8 @@ class TestWorkerProcess:
         input_queue.put(None)  # Eventually get sentinel
 
         # Run worker
-        _worker_process(0, input_queue, stats_queue, shutdown_event)
+        response_queue = MPQueue()
+        _worker_process(0, input_queue, stats_queue, response_queue, shutdown_event)
 
         # Should have handled timeouts gracefully (no crash)
         assert True
@@ -545,7 +557,8 @@ class TestWorkerProcess:
         input_queue.put(None)  # Sentinel to exit
 
         # Run worker
-        _worker_process(0, input_queue, stats_queue, shutdown_event)
+        response_queue = MPQueue()
+        _worker_process(0, input_queue, stats_queue, response_queue, shutdown_event)
 
         # Verify final stats include orderbook count and memory usage
         final_stats = stats_queue.get(timeout=1.0)
@@ -573,7 +586,8 @@ class TestWorkerProcess:
         input_queue.put(None)  # Immediate shutdown after stats
 
         # Run worker
-        _worker_process(0, input_queue, stats_queue, shutdown_event)
+        response_queue = MPQueue()
+        _worker_process(0, input_queue, stats_queue, response_queue, shutdown_event)
 
         # Should have at least final stats report
         final_stats = stats_queue.get(timeout=1.0)
@@ -608,7 +622,8 @@ class TestWorkerProcess:
         input_queue.put(None)
 
         # Run worker - should not crash
-        _worker_process(0, input_queue, stats_queue, shutdown_event)
+        response_queue = MPQueue()
+        _worker_process(0, input_queue, stats_queue, response_queue, shutdown_event)
 
         # Worker should have logged error but continued
         mock_logger.error.assert_called()
@@ -629,7 +644,8 @@ class TestWorkerProcess:
         input_queue.put(None)
 
         # Run worker
-        _worker_process(0, input_queue, stats_queue, shutdown_event)
+        response_queue = MPQueue()
+        _worker_process(0, input_queue, stats_queue, response_queue, shutdown_event)
 
         # Final stats should be in queue
         final_stats = stats_queue.get(timeout=1.0)
@@ -660,7 +676,8 @@ class TestWorkerProcess:
         input_queue.put(None)
 
         # Run worker - should handle Full exception gracefully
-        _worker_process(0, input_queue, stats_queue, shutdown_event)
+        response_queue = MPQueue()
+        _worker_process(0, input_queue, stats_queue, response_queue, shutdown_event)
 
         # Should not crash, even though stats queue was full
         assert True
@@ -688,7 +705,8 @@ class TestWorkerProcess:
         input_queue.put(None)
 
         # Run worker - should handle Full exception during stats report
-        _worker_process(0, input_queue, stats_queue, shutdown_event)
+        response_queue = MPQueue()
+        _worker_process(0, input_queue, stats_queue, response_queue, shutdown_event)
 
         # Should not crash
         assert True
@@ -728,7 +746,8 @@ class TestWorkerProcess:
         input_queue.put(None)
 
         # Run worker
-        _worker_process(0, input_queue, stats_queue, shutdown_event)
+        response_queue = MPQueue()
+        _worker_process(0, input_queue, stats_queue, response_queue, shutdown_event)
 
         # Verify stats tracked processing time
         final_stats = stats_queue.get(timeout=1.0)
@@ -746,7 +765,8 @@ class TestWorkerProcess:
         input_queue.put(None)  # Immediate shutdown
 
         # Run worker
-        _worker_process(0, input_queue, stats_queue, shutdown_event)
+        response_queue = MPQueue()
+        _worker_process(0, input_queue, stats_queue, response_queue, shutdown_event)
 
         # Verify signal was set to ignore SIGINT
         import signal

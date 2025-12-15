@@ -9,6 +9,8 @@ from src.messages.protocol import (
     Side,
     scale_price,
     scale_size,
+    unscale_price,
+    unscale_size,
 )
 
 
@@ -47,6 +49,55 @@ class TestScalingFunctions:
 
         # Assert
         assert result == expected
+
+    @pytest.mark.parametrize(
+        "price_int,expected",
+        [
+            (500, 0.5),
+            (456, 0.456),
+            (1000, 1.0),
+            (1, 0.001),
+            (0, 0.0),
+            (555, 0.555),
+        ],
+    )
+    def test_unscale_price(self, price_int: int, expected: float) -> None:
+        # Arrange & Act
+        result = unscale_price(price_int)
+
+        # Assert
+        assert result == expected
+
+    @pytest.mark.parametrize(
+        "size_int,expected",
+        [
+            (10000, 100.0),
+            (1025, 10.25),
+            (21921, 219.21),
+            (0, 0.0),
+            (12345, 123.45),
+        ],
+    )
+    def test_unscale_size(self, size_int: int, expected: float) -> None:
+        # Arrange & Act
+        result = unscale_size(size_int)
+
+        # Assert
+        assert result == expected
+
+    def test_scale_unscale_price_roundtrip(self) -> None:
+        """Test that scaling and unscaling prices is reversible."""
+        original = "0.550"
+        scaled = scale_price(original)
+        unscaled = unscale_price(scaled)
+        assert unscaled == 0.55
+
+    def test_scale_unscale_size_roundtrip(self) -> None:
+        """Test that scaling and unscaling sizes is reversible."""
+        original = "123.45"
+        scaled = scale_size(original)
+        unscaled = unscale_size(scaled)
+        assert unscaled == 123.45
 
 
 class TestPriceLevel:

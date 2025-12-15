@@ -18,8 +18,9 @@ from typing import assert_never
 import structlog
 
 from src.core.logging import Logger
-from src.messages.protocol import EventType, ParsedMessage
+from src.messages.protocol import EventType, ParsedMessage, unscale_price, unscale_size
 from src.orderbook.orderbook_store import Asset, OrderbookStore
+from src.worker.protocol import OrderbookMetrics, OrderbookRequest, OrderbookResponse
 from src.worker.stats import WorkerStats
 
 logger: Logger = structlog.getLogger(__name__)
@@ -40,12 +41,14 @@ class Worker:
         worker_id: int,
         input_queue: MPQueue,
         stats_queue: MPQueue,
+        response_queue: MPQueue,
         orderbook_store: OrderbookStore,
         stats: WorkerStats,
     ) -> None:
         self._worker_id = worker_id
         self._input_queue = input_queue
         self._stats_queue = stats_queue
+        self._response_queue = response_queue
         self._store = orderbook_store
         self._stats = stats
 
@@ -102,6 +105,12 @@ class Worker:
 
         # Unpack message and timestamp
         message, receive_ts = item
+
+        if isinstance(message, OrderbookRequest):
+            self._handle_orderbook_request(message)
+            return
+
+        # Handle normal message processing
         process_start = time.monotonic()
 
         # Process the message
@@ -228,11 +237,66 @@ class Worker:
         # In future, custom handlers would receive callback here
         pass
 
+    def _handle_orderbook_request(self, request: "OrderbookRequest") -> None:
+        """Handle orderbook query request."""
+        orderbook = self._store.get_state(request.asset_id)
+
+        if not orderbook:
+            response = OrderbookResponse(
+                request_id=request.request_id,
+                asset_id=request.asset_id,
+                found=False,
+                error="Asset not found",
+            )
+        else:
+            # Unscale prices and sizes for API response
+            bids = [
+                (unscale_price(level.price), unscale_size(level.size))
+                for level in orderbook.get_bids(request.depth)
+            ]
+            asks = [
+                (unscale_price(level.price), unscale_size(level.size))
+                for level in orderbook.get_asks(request.depth)
+            ]
+
+            # Calculate imbalance using unscaled sizes
+            bid_vol = sum(size for _, size in bids)
+            ask_vol = sum(size for _, size in asks)
+            total_vol = bid_vol + ask_vol
+            imbalance = bid_vol / total_vol if total_vol > 0 else 0.5
+
+            # Unscale metrics
+            metrics = OrderbookMetrics(
+                spread=unscale_price(orderbook.spread) if orderbook.spread else None,
+                mid_price=unscale_price(orderbook.mid_price)
+                if orderbook.mid_price
+                else None,
+                imbalance=imbalance,
+            )
+
+            response = OrderbookResponse(
+                request_id=request.request_id,
+                asset_id=request.asset_id,
+                found=True,
+                bids=bids,
+                asks=asks,
+                metrics=metrics,
+                last_update_ts=orderbook.last_update_ts,
+            )
+
+        try:
+            self._response_queue.put_nowait(response)
+        except Full:
+            logger.warning(
+                f"Response queue full, dropping response for {request.asset_id}"
+            )
+
 
 def _worker_process(
     worker_id: int,
     input_queue: MPQueue,
     stats_queue: MPQueue,
+    response_queue: MPQueue,
     shutdown_event: Event,
 ) -> None:
     """
@@ -244,6 +308,7 @@ def _worker_process(
         worker_id: Unique identifier for this worker (0-indexed)
         input_queue: Queue to receive (ParsedMessage, timestamp) tuples
         stats_queue: Queue to send periodic stats updates
+        response_queue: Queue to send orderbook query responses
         shutdown_event: Multiprocessing event for shutdown coordination
     """
     # Ignore SIGINT - parent process handles graceful shutdown
@@ -258,6 +323,7 @@ def _worker_process(
         worker_id=worker_id,
         input_queue=input_queue,
         stats_queue=stats_queue,
+        response_queue=response_queue,
         orderbook_store=store,
         stats=stats,
     )
