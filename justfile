@@ -78,3 +78,13 @@ stack-up: docker-build docker-up
 
 stack-down: docker-down
     @echo "✓ Stack is down"
+
+# Frontend development
+ui-install:
+    cd ui && npm install
+
+ui-dev:
+    cd ui && npm run dev
+
+ui-build:
+    cd ui && npm run build
