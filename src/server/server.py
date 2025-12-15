@@ -9,6 +9,7 @@ from aiohttp.hdrs import CONTENT_TYPE
 from prometheus_client import CONTENT_TYPE_LATEST
 
 from src.core.logging import Logger
+from src.registry.asset_entry import AssetStatus
 
 if TYPE_CHECKING:
     from src.app import PolyPy
@@ -70,6 +71,7 @@ class HTTPServer:
         web_app.router.add_get("/health", self._handle_health)
         web_app.router.add_get("/stats", self._handle_stats)
         web_app.router.add_get("/metrics", self._handle_metrics)
+        web_app.router.add_get("/markets", self._handle_markets)
 
         # Start server
         self._runner = web.AppRunner(web_app)
@@ -182,3 +184,44 @@ class HTTPServer:
         )
 
         return rsp
+
+    async def _handle_markets(self, request: web.Request) -> web.Response:
+        """Handle GET /markets endpoint.
+
+        Returns list of subscribed markets with metadata.
+
+        Returns:
+            200 OK with market list
+            503 Service Unavailable when lifecycle controller not available
+        """
+        logger.debug("GET /markets")
+
+        if not self._app._lifecycle:
+            return web.json_response(
+                {"error": "Lifecycle controller not available"}, status=503
+            )
+
+        markets = self._app._lifecycle.get_all_markets()
+        subscribed_assets = (
+            self._app._registry.get_by_status(AssetStatus.SUBSCRIBED)
+            if self._app._registry
+            else frozenset()
+        )
+
+        result = []
+        for market in markets:
+            # Check if any token from this market is subscribed
+            token_ids = [t.get("token_id", "") for t in market.tokens]
+            if any(tid in subscribed_assets for tid in token_ids):
+                result.append(
+                    {
+                        "condition_id": market.condition_id,
+                        "question": market.question,
+                        "outcomes": market.outcomes,
+                        "tokens": market.tokens,
+                        "end_date_iso": market.end_date_iso,
+                        "end_timestamp": market.end_timestamp,
+                    }
+                )
+
+        return web.json_response({"markets": result}, status=200)
