@@ -13,6 +13,7 @@ from src.lifecycle.types import (
     DISCOVERY_INTERVAL,
     EXPIRATION_CHECK_INTERVAL,
     LifecycleCallback,
+    MarketInfo,
 )
 from src.registry.asset_entry import AssetStatus
 from src.registry.asset_registry import AssetRegistry
@@ -36,6 +37,7 @@ class LifecycleController:
         "_on_market_expired",
         "_session",
         "_known_conditions",
+        "_market_metadata",
         "_discovery_task",
         "_expiration_task",
         "_cleanup_task",
@@ -62,6 +64,7 @@ class LifecycleController:
 
         self._session: aiohttp.ClientSession | None = None
         self._known_conditions: set[str] = set()
+        self._market_metadata: dict[str, MarketInfo] = {}
 
         self._discovery_task: asyncio.Task | None = None
         self._expiration_task: asyncio.Task | None = None
@@ -77,6 +80,14 @@ class LifecycleController:
     def known_market_count(self) -> int:
         """Number of known market condition IDs."""
         return len(self._known_conditions)
+
+    def get_market_metadata(self, condition_id: str) -> MarketInfo | None:
+        """Get market metadata by condition ID."""
+        return self._market_metadata.get(condition_id)
+
+    def get_all_markets(self) -> list[MarketInfo]:
+        """Get all known market metadata."""
+        return list(self._market_metadata.values())
 
     async def start(self) -> None:
         """
@@ -218,6 +229,7 @@ class LifecycleController:
                 continue
 
             self._known_conditions.add(market.condition_id)
+            self._market_metadata[market.condition_id] = market
 
             # Register each token (Yes/No) as an asset
             for token in market.tokens:
