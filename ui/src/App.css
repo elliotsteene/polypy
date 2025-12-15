@@ -1,0 +1,114 @@
+.app {
+  max-width: 800px;
+  margin: 0 auto;
+  padding: 20px;
+  font-family: system-ui, -apple-system, sans-serif;
+}
+
+.market-list select {
+  width: 100%;
+  padding: 8px;
+  font-size: 14px;
+  margin-bottom: 20px;
+}
+
+.orderbook-view .header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.orderbook-view .header h2 {
+  margin: 0;
+  font-size: 18px;
+}
+
+.orderbook-view .outcome {
+  background: #e0e0e0;
+  padding: 4px 8px;
+  border-radius: 4px;
+  font-size: 12px;
+}
+
+.orderbook-view .status {
+  margin-left: auto;
+  font-size: 12px;
+}
+
+.status.connected { color: green; }
+.status.disconnected { color: red; }
+
+.metrics {
+  display: flex;
+  gap: 24px;
+  margin-bottom: 20px;
+  padding: 12px;
+  background: #f5f5f5;
+  border-radius: 8px;
+}
+
+.metric {
+  display: flex;
+  flex-direction: column;
+}
+
+.metric .label {
+  font-size: 12px;
+  color: #666;
+}
+
+.metric .value {
+  font-size: 18px;
+  font-weight: 600;
+}
+
+.price-levels {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 20px;
+}
+
+.price-levels h3 {
+  margin: 0 0 8px 0;
+  font-size: 14px;
+  color: #666;
+}
+
+.level {
+  display: flex;
+  align-items: center;
+  padding: 4px 8px;
+  margin-bottom: 2px;
+  position: relative;
+  font-family: monospace;
+}
+
+.level .bar {
+  position: absolute;
+  left: 0;
+  top: 0;
+  height: 100%;
+  opacity: 0.2;
+}
+
+.bid .bar { background: #22c55e; }
+.ask .bar { background: #ef4444; }
+
+.level .price {
+  flex: 1;
+  z-index: 1;
+}
+
+.level .size {
+  z-index: 1;
+  color: #666;
+}
+
+.error {
+  color: red;
+  padding: 12px;
+  background: #fee;
+  border-radius: 4px;
+  margin-bottom: 16px;
+}
