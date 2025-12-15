@@ -103,6 +103,9 @@ class HTTPServer:
 
         self._running = False
 
+        # Close all active WebSocket connections first
+        await self._cleanup_websockets()
+
         # Stop accepting new connections
         if self._site:
             await self._site.stop()
@@ -114,6 +117,31 @@ class HTTPServer:
             self._runner = None
 
         logger.info("✓ HTTP server stopped")
+
+    async def _cleanup_websockets(self) -> None:
+        """Close all active WebSocket connections gracefully.
+
+        Cancels streaming tasks and closes connections before server shutdown.
+        """
+        if not self._ws_handler:
+            return
+
+        client_count = self._ws_handler.get_client_count()
+        if client_count == 0:
+            return
+
+        logger.info(f"Closing {client_count} WebSocket connection(s)...")
+
+        # Create list to avoid dict modification during iteration
+        clients = list(self._ws_handler._clients.values())
+
+        for client in clients:
+            try:
+                await client.close()
+            except Exception as e:
+                logger.error(f"Error closing WebSocket client: {e}")
+
+        logger.info("✓ WebSocket connections closed")
 
     async def _handle_health(self, request: web.Request) -> web.Response:
         """Handle GET /health endpoint.
